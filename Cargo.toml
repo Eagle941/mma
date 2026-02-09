@@ -1,8 +1,23 @@
-[package]
-name = "mma"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+members = [
+  "cli"
+]
 
-[dependencies]
+[workspace.package]
+# If this version is changed, amend the edition set in `rustfmt.toml`.
+edition = "2024"
+# If this version is changed, amend the version set in `build.yml`.
+rust-version = "1.93.0"
+# Prevent publishing by accident.
+publish = false
+repository = "https://github.com/Eagle941/mma"
+readme = "README.md"
+
+[profile.release]
+lto = "fat"
+opt-level = 3 # All optimisations
+debug = true # Added for testing in release mode. To be removed for production
+
+[workspace.dependencies]

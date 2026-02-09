@@ -1,0 +1,15 @@
+[package]
+name = "cli"
+version = "0.0.1"
+description = "A CLI tool to interact with mma through command line."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.98"
+# arinc-explorer = { path = "../arinc-explorer" }
+clap = { version = "4.5.3", features = ["derive"] }
+exitcode = "1.1.2"
