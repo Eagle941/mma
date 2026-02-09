@@ -9,6 +9,8 @@ use exitcode::{OK, SOFTWARE};
 pub struct Args {}
 
 fn main() {
+    // TODO: handle SIGTERM (^C) gracefully
+
     let args = Args::parse();
 
     match run(args) {

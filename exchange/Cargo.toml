@@ -1,0 +1,11 @@
+[package]
+name = "cli"
+version = "0.0.1"
+description = "This package handles the connection with the crypto exchanges."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+publish.workspace = true
+
+[dependencies]
