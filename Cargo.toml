@@ -2,7 +2,8 @@
 resolver = "2"
 
 members = [
-  "cli"
+  "cli",
+  "exchange"
 ]
 
 [workspace.package]

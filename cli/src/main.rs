@@ -3,6 +3,7 @@ use std::process;
 
 use anyhow::anyhow;
 use clap::Parser;
+use exchange::bybit::OrderBook;
 use exitcode::{OK, SOFTWARE};
 
 #[derive(Clone, Parser, Debug)]
@@ -23,5 +24,7 @@ fn main() {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
+    let symbol = "ETHUSDT";
+    OrderBook::subscribe(symbol);
     Ok(())
 }

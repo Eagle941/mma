@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow = "1.0.98"
-# arinc-explorer = { path = "../arinc-explorer" }
 clap = { version = "4.5.3", features = ["derive"] }
 exitcode = "1.1.2"
+
+exchange = { path = "../exchange" }
