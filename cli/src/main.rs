@@ -1,7 +1,5 @@
-use std::path::PathBuf;
 use std::process;
 
-use anyhow::anyhow;
 use clap::Parser;
 use exchange::bybit::OrderBook;
 use exitcode::{OK, SOFTWARE};
@@ -23,8 +21,9 @@ fn main() {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
+fn run(_args: Args) -> anyhow::Result<()> {
     let symbol = "ETHUSDT";
-    OrderBook::subscribe(symbol);
+    let mut order_book = OrderBook::default();
+    order_book.subscribe(symbol);
     Ok(())
 }
