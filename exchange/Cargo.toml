@@ -9,4 +9,5 @@ readme.workspace = true
 publish.workspace = true
 
 [dependencies]
+triple_buffer = "8.1.1"
 rust-bybit = "0.2.0"

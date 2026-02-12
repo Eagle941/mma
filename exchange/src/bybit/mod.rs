@@ -4,6 +4,7 @@ use std::str::FromStr;
 use bybit::ws::response::{OrderbookItem, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
 use bybit::WebSocketApiClient;
+use triple_buffer::Input;
 
 #[derive(Debug, Default)]
 struct OwnedOrderBookItem(String, String);
@@ -64,7 +65,7 @@ pub struct OrderBook {
 }
 impl OrderBook {
     // TODO: extract callback in separate function for testing.
-    pub fn subscribe(&mut self, symbol: &str) {
+    pub fn subscribe(order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
         let mut client = WebSocketApiClient::spot().build();
 
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
@@ -72,11 +73,12 @@ impl OrderBook {
         let callback = |res: SpotPublicResponse| {
             match res {
                 SpotPublicResponse::Orderbook(res) => {
+                    let order_book = order_book_publisher.input_buffer_mut();
                     // Once you have subscribed successfully, you will receive a snapshot.
                     // If you receive a new snapshot message, you will have to reset your local orderbook.
                     if res.type_ == "snapshot" || res.data.u == 1 {
-                        self.asks = res.data.a.iter().map(|item| item.into()).collect();
-                        self.bids = res.data.b.iter().map(|item| item.into()).collect();
+                        order_book.asks = res.data.a.iter().map(|item| item.into()).collect();
+                        order_book.bids = res.data.b.iter().map(|item| item.into()).collect();
                         return;
                     }
 
@@ -90,12 +92,12 @@ impl OrderBook {
                         let level: Level = (&a[i]).into();
 
                         let mut j: usize = 0;
-                        while j < self.asks.len() {
-                            let item = &mut self.asks[j];
+                        while j < order_book.asks.len() {
+                            let item = &mut order_book.asks[j];
                             let item_price: f64 = item.price;
 
                             if level.price < item_price {
-                                self.asks.insert(j, level);
+                                order_book.asks.insert(j, level);
                                 break;
                             }
 
@@ -103,7 +105,7 @@ impl OrderBook {
                                 if level.size != 0.0 {
                                     item.size = level.size;
                                 } else {
-                                    self.asks.remove(j);
+                                    order_book.asks.remove(j);
                                 }
                                 break;
                             }
@@ -111,8 +113,8 @@ impl OrderBook {
                             j += 1;
                         }
 
-                        if j == self.asks.len() {
-                            self.asks.push(level)
+                        if j == order_book.asks.len() {
+                            order_book.asks.push(level)
                         }
 
                         i += 1;
@@ -125,11 +127,11 @@ impl OrderBook {
                         let level: Level = (&b[i]).into();
 
                         let mut j: usize = 0;
-                        while j < self.bids.len() {
-                            let item = &mut self.bids[j];
+                        while j < order_book.bids.len() {
+                            let item = &mut order_book.bids[j];
                             let item_price: f64 = item.price;
                             if level.price > item_price {
-                                self.bids.insert(j, level);
+                                order_book.bids.insert(j, level);
                                 break;
                             }
 
@@ -137,7 +139,7 @@ impl OrderBook {
                                 if level.size != 0.0 {
                                     item.size = level.size;
                                 } else {
-                                    self.bids.remove(j);
+                                    order_book.bids.remove(j);
                                 }
                                 break;
                             }
@@ -145,8 +147,8 @@ impl OrderBook {
                             j += 1;
                         }
 
-                        if j == self.bids.len() {
-                            self.bids.push(level);
+                        if j == order_book.bids.len() {
+                            order_book.bids.push(level);
                         }
 
                         i += 1;
@@ -157,10 +159,7 @@ impl OrderBook {
                 }
                 x => unreachable!("SpotPublicResponse::{x:?} not implemented"),
             }
-
-            // if !self.bids.is_empty() && !self.asks.is_empty() {
-            //     println!("BID {} | ASK {}", self.bids[0], self.asks[0]);
-            // }
+            order_book_publisher.publish();
         };
 
         match client.run(callback) {
