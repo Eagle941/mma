@@ -5,3 +5,5 @@ Here are the challenges to think about during review and testing:
 problems)
 - Investigate solutions more efficient than `triple_buffer`
 - Rewrite the bybit library
+- Optimise the amount of order book levels sent to the strategy thread. Does it
+need all 50 or less?

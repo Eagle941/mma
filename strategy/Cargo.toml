@@ -1,0 +1,11 @@
+[package]
+name = "strategy"
+version = "0.0.1"
+description = "This package contains the logic for the strategy which generates order commands to the exchange."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+publish.workspace = true
+
+[dependencies]

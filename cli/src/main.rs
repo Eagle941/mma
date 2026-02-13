@@ -31,6 +31,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
         order_book_local.subscribe(&mut producer, symbol);
     });
 
+    // Added sleep to give time to the websocket to retrieve the first order
+    // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
     let strategy_thread = thread::spawn(move || loop {
