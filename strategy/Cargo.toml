@@ -9,3 +9,4 @@ readme.workspace = true
 publish.workspace = true
 
 [dependencies]
+exchange = { path = "../exchange" }

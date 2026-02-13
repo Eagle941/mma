@@ -159,8 +159,10 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "dotenvy",
  "exchange",
  "exitcode",
+ "strategy",
  "triple_buffer",
 ]
 
@@ -231,6 +233,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "equivalent"
@@ -901,6 +909,9 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "strategy"
 version = "0.0.1"
+dependencies = [
+ "exchange",
+]
 
 [[package]]
 name = "strsim"
