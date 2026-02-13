@@ -1,7 +1,7 @@
-use std::fmt;
+use std::fmt::{self, Display, Result};
 use std::str::FromStr;
 
-use bybit::ws::response::{OrderbookItem, SpotPublicResponse};
+use bybit::ws::response::{Orderbook, OrderbookItem, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
 use bybit::WebSocketApiClient;
 use triple_buffer::Input;
@@ -13,8 +13,8 @@ impl<'a> From<&OrderbookItem<'a>> for OwnedOrderBookItem {
         OwnedOrderBookItem(value.0.to_owned(), value.1.to_owned())
     }
 }
-impl fmt::Display for OwnedOrderBookItem {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for OwnedOrderBookItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result {
         write!(f, "({},{})", self.0, self.1)
     }
 }
@@ -28,8 +28,8 @@ pub struct Level {
     pub price: f64,
     pub size: f64,
 }
-impl fmt::Display for Level {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Level {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result {
         write!(f, "({},{})", self.price, self.size)
     }
 }
@@ -58,14 +58,43 @@ pub struct OrderBook {
     // Sorted by price in ascending order.
     pub asks: Vec<Level>,
     // The timestamp (ms) that the system generates the data.
+    // UNUSED
     pub ts: f64,
     // The timestamp from the matching engine when this orderbook data is
     // produced. It can be correlated with T from public trade channel.
+    // UNUSED
     pub cts: f64,
 }
 impl OrderBook {
+    // TODO: Optimise order book updates
+    fn process_delta(&mut self, data: Orderbook) {
+        // process asks
+        for ask in &data.a {
+            let ask: Level = ask.into();
+            match self.asks.iter_mut().find(|x| x.price == ask.price) {
+                Some(item) => item.size = ask.size,
+                None => self.asks.push(ask),
+            }
+        }
+
+        // process bids
+        for bid in &data.b {
+            let bid: Level = bid.into();
+            match self.bids.iter_mut().find(|x| x.price == bid.price) {
+                Some(item) => item.size = bid.size,
+                None => self.bids.push(bid),
+            }
+        }
+
+        self.bids.retain(|b| b.size != 0.0);
+        self.asks.retain(|a| a.size != 0.0);
+
+        self.asks.sort_by(|a, b| a.price.total_cmp(&b.price));
+        self.bids.sort_by(|a, b| b.price.total_cmp(&a.price));
+    }
+
     // TODO: extract callback in separate function for testing.
-    pub fn subscribe(order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
+    pub fn subscribe(&mut self, order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
         let mut client = WebSocketApiClient::spot().build();
 
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
@@ -73,93 +102,31 @@ impl OrderBook {
         let callback = |res: SpotPublicResponse| {
             match res {
                 SpotPublicResponse::Orderbook(res) => {
-                    let order_book = order_book_publisher.input_buffer_mut();
                     // Once you have subscribed successfully, you will receive a snapshot.
                     // If you receive a new snapshot message, you will have to reset your local orderbook.
                     if res.type_ == "snapshot" || res.data.u == 1 {
-                        order_book.asks = res.data.a.iter().map(|item| item.into()).collect();
-                        order_book.bids = res.data.b.iter().map(|item| item.into()).collect();
+                        self.asks = res.data.a.iter().map(|item| item.into()).collect();
+                        self.bids = res.data.b.iter().map(|item| item.into()).collect();
                         return;
                     }
 
                     // Receive a delta message, update the orderbook.
                     // Note that asks and bids of a delta message **do not guarantee** to be ordered.
+                    Self::process_delta(self, res.data);
 
-                    // process asks
-                    let a = &res.data.a;
-                    let mut i: usize = 0;
-                    while i < a.len() {
-                        let level: Level = (&a[i]).into();
-
-                        let mut j: usize = 0;
-                        while j < order_book.asks.len() {
-                            let item = &mut order_book.asks[j];
-                            let item_price: f64 = item.price;
-
-                            if level.price < item_price {
-                                order_book.asks.insert(j, level);
-                                break;
-                            }
-
-                            if level.price == item_price {
-                                if level.size != 0.0 {
-                                    item.size = level.size;
-                                } else {
-                                    order_book.asks.remove(j);
-                                }
-                                break;
-                            }
-
-                            j += 1;
-                        }
-
-                        if j == order_book.asks.len() {
-                            order_book.asks.push(level)
-                        }
-
-                        i += 1;
-                    }
-
-                    // process bids
-                    let b = &res.data.b;
-                    let mut i: usize = 0;
-                    while i < b.len() {
-                        let level: Level = (&b[i]).into();
-
-                        let mut j: usize = 0;
-                        while j < order_book.bids.len() {
-                            let item = &mut order_book.bids[j];
-                            let item_price: f64 = item.price;
-                            if level.price > item_price {
-                                order_book.bids.insert(j, level);
-                                break;
-                            }
-
-                            if level.price == item_price {
-                                if level.size != 0.0 {
-                                    item.size = level.size;
-                                } else {
-                                    order_book.bids.remove(j);
-                                }
-                                break;
-                            }
-
-                            j += 1;
-                        }
-
-                        if j == order_book.bids.len() {
-                            order_book.bids.push(level);
-                        }
-
-                        i += 1;
-                    }
+                    // TODO: remove the cloning forced by the triple buffer consistency
+                    let order_book = order_book_publisher.input_buffer_mut();
+                    order_book.asks = self.asks.clone();
+                    order_book.bids = self.bids.clone();
+                    order_book_publisher.publish();
                 }
                 SpotPublicResponse::Op(res) => {
-                    println!("{res:?}")
+                    if !res.success {
+                        println!("{res:?}")
+                    }
                 }
                 x => unreachable!("SpotPublicResponse::{x:?} not implemented"),
             }
-            order_book_publisher.publish();
         };
 
         match client.run(callback) {
