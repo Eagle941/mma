@@ -1,12 +1,13 @@
-use exchange::bybit::OrderBook;
+use exchange::bybit::book::OrderBook;
 
 #[derive(Default)]
 pub struct SimpleStrategy {
     spread: f64,
+    size: f64,
 }
 impl SimpleStrategy {
-    pub fn new(spread: f64) -> SimpleStrategy {
-        SimpleStrategy { spread }
+    pub fn new(spread: f64, size: f64) -> SimpleStrategy {
+        SimpleStrategy { spread, size }
     }
     pub fn execute(&self, order_book: &OrderBook) {
         if order_book.bids.len() != 0 && order_book.asks.len() != 0 {
@@ -27,6 +28,20 @@ impl SimpleStrategy {
                     0.0
                 }
             );
+
+            let mid_price = (first_ask.price + first_bid.price) / 2.0;
+            let half_spread = mid_price * self.spread / 2.0;
+            let _bid_price = mid_price - half_spread;
+            let _ask_price = mid_price + half_spread;
+
+            // let bid_order = OrderCommand::PlaceBid {
+            //     price: bid_price,
+            //     size: config.order_size,
+            // };
+            // let ask_order = OrderCommand::PlaceAsk {
+            //     price: ask_price,
+            //     size: config.order_size,
+            // };
         }
     }
 }

@@ -1,5 +1,5 @@
 use clap::Parser;
-use exchange::bybit::OrderBook;
+use exchange::bybit::book::OrderBook;
 use exitcode::{OK, SOFTWARE};
 use std::str::FromStr;
 use std::{env, process, thread, time::Duration};
@@ -11,6 +11,7 @@ pub struct Args {}
 
 fn main() {
     // TODO: handle SIGTERM (^C) gracefully
+    // TODO: evaluate whether to use any cli argument or use `.env` file only
     let args = Args::parse();
 
     match run(args) {
@@ -26,8 +27,12 @@ fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::dotenv()?;
 
     let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
+
     let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
     let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
+
+    let size = env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
+    let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
 
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
@@ -41,7 +46,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
-    let simple_strategy = SimpleStrategy::new(spread);
+    let simple_strategy = SimpleStrategy::new(spread, size);
     let strategy_thread = thread::spawn(move || loop {
         let order_book = consumer.read();
         simple_strategy.execute(order_book);
