@@ -1,7 +1,6 @@
 use clap::Parser;
 use exchange::bybit::book::OrderBook;
 use exitcode::{OK, SOFTWARE};
-use std::str::FromStr;
 use std::{env, process, thread, time::Duration};
 use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
@@ -40,17 +39,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     thread::sleep(Duration::from_millis(1000));
 
     let strategy_thread = thread::spawn(move || {
-        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-
-        let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
-        let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
-
-        let size =
-            env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
-        let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
-
-        let simple_strategy = SimpleStrategy::new(spread, size, symbol.as_str());
-
+        let simple_strategy = SimpleStrategy::factory();
         loop {
             let order_book = consumer.read();
             simple_strategy.execute(order_book);

@@ -2,6 +2,8 @@ use exchange::bybit::{
     book::OrderBook,
     order::{Order, OrderManagementSystem, OrderSide, OrderType},
 };
+use std::env;
+use std::str::FromStr;
 
 pub struct SimpleStrategy {
     bybit: OrderManagementSystem,
@@ -27,6 +29,20 @@ impl SimpleStrategy {
             symbol,
         }
     }
+
+    pub fn factory() -> SimpleStrategy {
+        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
+
+        let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
+        let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
+
+        let size =
+            env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
+        let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
+
+        SimpleStrategy::new(spread, size, symbol.as_str())
+    }
+
     pub fn execute(&self, order_book: &OrderBook) {
         if order_book.bids.len() != 0 && order_book.asks.len() != 0 {
             let first_bid = order_book.bids.first().unwrap();
@@ -53,6 +69,7 @@ impl SimpleStrategy {
             let ask_price = mid_price + half_spread;
 
             // TODO: Optimise String cloning
+            // TODO: Make parallel order submission
             let bid_order = Order {
                 symbol: self.symbol.clone(),
                 side: OrderSide::BUY,
