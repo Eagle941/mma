@@ -26,18 +26,11 @@ fn main() {
 fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::dotenv()?;
 
-    let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-
-    let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
-    let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
-
-    let size = env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
-    let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
-
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
 
     let ws_thread = thread::spawn(move || {
+        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
         let mut order_book_local = OrderBook::default();
         order_book_local.subscribe(&mut producer, &symbol);
     });
@@ -46,11 +39,23 @@ fn run(_args: Args) -> anyhow::Result<()> {
     // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
-    let simple_strategy = SimpleStrategy::new(spread, size);
-    let strategy_thread = thread::spawn(move || loop {
-        let order_book = consumer.read();
-        simple_strategy.execute(order_book);
-        thread::sleep(Duration::from_millis(1000));
+    let strategy_thread = thread::spawn(move || {
+        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
+
+        let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
+        let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
+
+        let size =
+            env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
+        let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
+
+        let simple_strategy = SimpleStrategy::new(spread, size, symbol.as_str());
+
+        loop {
+            let order_book = consumer.read();
+            simple_strategy.execute(order_book);
+            thread::sleep(Duration::from_millis(1000));
+        }
     });
 
     ws_thread.join().expect("ws_thread has panicked");

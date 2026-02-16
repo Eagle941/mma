@@ -1,13 +1,31 @@
-use exchange::bybit::book::OrderBook;
+use exchange::bybit::{
+    book::OrderBook,
+    order::{Order, OrderManagementSystem, OrderSide, OrderType},
+};
 
-#[derive(Default)]
 pub struct SimpleStrategy {
+    bybit: OrderManagementSystem,
     spread: f64,
     size: f64,
+    symbol: String,
 }
 impl SimpleStrategy {
-    pub fn new(spread: f64, size: f64) -> SimpleStrategy {
-        SimpleStrategy { spread, size }
+    pub fn new(spread: f64, size: f64, symbol: &str) -> SimpleStrategy {
+        let base_url = "https://api-testnet.bybit.com";
+        let api_key = "xxxxxxxx";
+        let api_secret = "xxxxxxxxxxx";
+        let bybit = OrderManagementSystem::new(
+            base_url.to_owned(),
+            api_key.to_owned(),
+            api_secret.to_owned(),
+        );
+        let symbol = symbol.to_string();
+        SimpleStrategy {
+            bybit,
+            spread,
+            size,
+            symbol,
+        }
     }
     pub fn execute(&self, order_book: &OrderBook) {
         if order_book.bids.len() != 0 && order_book.asks.len() != 0 {
@@ -31,17 +49,27 @@ impl SimpleStrategy {
 
             let mid_price = (first_ask.price + first_bid.price) / 2.0;
             let half_spread = mid_price * self.spread / 2.0;
-            let _bid_price = mid_price - half_spread;
-            let _ask_price = mid_price + half_spread;
+            let bid_price = mid_price - half_spread;
+            let ask_price = mid_price + half_spread;
 
-            // let bid_order = OrderCommand::PlaceBid {
-            //     price: bid_price,
-            //     size: config.order_size,
-            // };
-            // let ask_order = OrderCommand::PlaceAsk {
-            //     price: ask_price,
-            //     size: config.order_size,
-            // };
+            // TODO: Optimise String cloning
+            let bid_order = Order {
+                symbol: self.symbol.clone(),
+                side: OrderSide::BUY,
+                order_type: OrderType::LIMIT,
+                qty: self.size,
+                price: bid_price,
+            };
+            self.bybit.submit_order(bid_order);
+
+            let ask_order = Order {
+                symbol: self.symbol.clone(),
+                side: OrderSide::SELL,
+                order_type: OrderType::LIMIT,
+                qty: self.size,
+                price: ask_price,
+            };
+            self.bybit.submit_order(ask_order);
         }
     }
 }

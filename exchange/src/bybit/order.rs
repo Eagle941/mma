@@ -1,9 +1,12 @@
+use std::thread;
+
 use attohttpc::Session;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::json;
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -22,13 +25,14 @@ pub enum OrderType {
 
 #[derive(Serialize, Deserialize)]
 pub struct Order {
-    symbol: String,
-    side: OrderSide,
-    order_type: OrderType,
-    qty: f64,
-    price: f64,
+    pub symbol: String,
+    pub side: OrderSide,
+    pub order_type: OrderType,
+    pub qty: f64,
+    pub price: f64,
 }
 
+#[derive(Default)]
 pub struct OrderManagementSystem {
     base_url: String,
     api_key: String,
@@ -56,27 +60,60 @@ impl OrderManagementSystem {
         }
     }
 
-    pub fn submit_order(&self, order: Order) -> attohttpc::Result {
+    pub fn submit_order(&self, order: Order) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add additional exchange mandatory parameters
         let url = format!("{}/v5/order/create", self.base_url);
         let time_ms = Utc::now().timestamp_millis().to_string();
 
-        let resp = self
-            .session
-            .post(url)
-            .header("X-BAPI-SIGN", time_ms.to_string())
-            .header("X-BAPI-TIMESTAMP", time_ms.to_string())
-            .json(&order)?
-            .send()?;
-        Ok(())
+        // TODO: add timeInForce parameter
+        let body = json!({
+            "category": "spot",
+            "symbol": order.symbol,
+            "side": order.side,
+            "orderType": order.order_type,
+            "qty": order.qty,
+            "price": order.price
+        });
+        let signature = Self::generate_post_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window.to_string(),
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+
+        // TODO: use non-blocking HTTP request and avoid creating a new thread.
+        thread::scope(|_| {
+            let res = self
+                .session
+                .post(url)
+                .header("X-BAPI-API-KEY", &self.api_key)
+                .header("X-BAPI-SIGN", signature)
+                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
+                .json(&body)
+                .unwrap()
+                .send();
+            match res {
+                Ok(x) => {
+                    if x.status() != StatusCode::OK {
+                        panic!("Failed order response {x:?}\n{body:#?}");
+                    }
+                }
+                Err(x) => {
+                    panic!("Failed to send order {x}\n{body:#?}");
+                }
+            }
+        });
     }
 
     fn generate_post_signature(
         timestamp: &str,
         api_key: &str,
         recv_window: &str,
-        params: &serde_json::Map<String, Value>,
+        params: &str,
         api_secret: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         // TODO: optimise signature generation
@@ -85,7 +122,7 @@ impl OrderManagementSystem {
         mac.update(timestamp.as_bytes());
         mac.update(api_key.as_bytes());
         mac.update(recv_window.as_bytes());
-        mac.update(serde_json::to_string(&params)?.as_bytes());
+        mac.update(params.as_bytes());
 
         let result = mac.finalize();
         let code_bytes = result.into_bytes();
