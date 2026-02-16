@@ -32,15 +32,14 @@ pub struct Order {
     pub price: f64,
 }
 
-#[derive(Default)]
-pub struct OrderManagementSystem {
+pub struct OrderHandler {
     base_url: String,
     api_key: String,
     api_secret: String,
     recv_window: u32,
     session: Session,
 }
-impl OrderManagementSystem {
+impl OrderHandler {
     pub fn new(base_url: String, api_key: String, api_secret: String) -> Self {
         // how long an HTTP request is valid. It is also used to prevent replay
         // attacks.
@@ -51,7 +50,7 @@ impl OrderManagementSystem {
         session.header("X-BAPI-SIGN", &api_secret);
         session.header("X-BAPI-API-KEY", &api_key);
         session.header("X-BAPI-RECV-WINDOW", recv_window);
-        OrderManagementSystem {
+        OrderHandler {
             base_url,
             api_key,
             api_secret,

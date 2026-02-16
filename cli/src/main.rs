@@ -47,9 +47,17 @@ fn run(_args: Args) -> anyhow::Result<()> {
         }
     });
 
+    let order_worker_thread = thread::spawn(move || {
+        //
+        todo!()
+    });
+
     ws_thread.join().expect("ws_thread has panicked");
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");
+    order_worker_thread
+        .join()
+        .expect("order_worker_thread has panicked");
     Ok(())
 }

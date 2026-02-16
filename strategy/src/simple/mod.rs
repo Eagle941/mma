@@ -1,12 +1,12 @@
 use exchange::bybit::{
     book::OrderBook,
-    order::{Order, OrderManagementSystem, OrderSide, OrderType},
+    order::{Order, OrderHandler, OrderSide, OrderType},
 };
 use std::env;
 use std::str::FromStr;
 
 pub struct SimpleStrategy {
-    bybit: OrderManagementSystem,
+    bybit: OrderHandler,
     spread: f64,
     size: f64,
     symbol: String,
@@ -16,7 +16,7 @@ impl SimpleStrategy {
         let base_url = "https://api-testnet.bybit.com";
         let api_key = "xxxxxxxx";
         let api_secret = "xxxxxxxxxxx";
-        let bybit = OrderManagementSystem::new(
+        let bybit = OrderHandler::new(
             base_url.to_owned(),
             api_key.to_owned(),
             api_secret.to_owned(),
