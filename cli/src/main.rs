@@ -30,7 +30,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let ws_thread = thread::spawn(move || {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        let mut data_handler = DataHandler::new();
+        let mut data_handler = DataHandler::default();
         data_handler.subscribe(&mut producer, &symbol);
     });
 

@@ -36,7 +36,7 @@ impl SimpleStrategy {
     }
 
     pub fn execute(&self, order_book: &OrderBook) {
-        if order_book.bids.len() != 0 && order_book.asks.len() != 0 {
+        if !order_book.bids.is_empty() && !order_book.asks.is_empty() {
             let first_bid = order_book.bids.first().unwrap();
             let last_bid = order_book.bids.last().unwrap();
             let first_ask = order_book.asks.first().unwrap();

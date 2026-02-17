@@ -7,6 +7,8 @@ pub struct OrderManagementSystem {
     _active_orders: HashMap<String, Order>,
 }
 impl OrderManagementSystem {
+    // Temporary while secrets handling hasn't been implemented
+    #[allow(clippy::new_without_default)]
     pub fn new() -> OrderManagementSystem {
         let base_url = "https://api-testnet.bybit.com";
         let api_key = "xxxxxxxx";

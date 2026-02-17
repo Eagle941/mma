@@ -21,8 +21,8 @@ impl<'a> From<&OrderbookItem<'a>> for Level {
     fn from(src: &OrderbookItem) -> Self {
         // TODO: optimise parsing method from `String` to `f64`
         Level {
-            price: unsafe { f64::from_str(&src.0).unwrap_unchecked() },
-            size: unsafe { f64::from_str(&src.1).unwrap_unchecked() },
+            price: f64::from_str(src.0).unwrap(),
+            size: f64::from_str(src.1).unwrap(),
         }
     }
 }

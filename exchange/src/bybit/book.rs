@@ -8,14 +8,11 @@ use crate::{Level, OrderBook};
 // TODO: set from the configuration package.
 pub const ORDER_BOOK_LEVELS: usize = 50;
 
+#[derive(Debug, Default)]
 pub struct DataHandler {
     order_book: OrderBook,
 }
 impl DataHandler {
-    pub fn new() -> DataHandler {
-        let order_book = OrderBook::default();
-        DataHandler { order_book }
-    }
     // TODO: Optimise order book updates
     fn process_delta(&mut self, data: Orderbook) {
         // process asks
