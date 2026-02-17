@@ -1,5 +1,5 @@
 use clap::Parser;
-use exchange::bybit::book::OrderBook;
+use exchange::{OrderBook, bybit::book::DataHandler};
 use exitcode::{OK, SOFTWARE};
 use std::{env, process, thread, time::Duration};
 use strategy::simple::SimpleStrategy;
@@ -30,8 +30,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let ws_thread = thread::spawn(move || {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        let mut order_book_local = OrderBook::default();
-        order_book_local.subscribe(&mut producer, &symbol);
+        let mut data_handler = DataHandler::new();
+        data_handler.subscribe(&mut producer, &symbol);
     });
 
     // Added sleep to give time to the websocket to retrieve the first order
@@ -47,7 +47,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
         }
     });
 
-    let order_worker_thread = thread::spawn(move || {
+    let _order_worker_thread = thread::spawn(move || {
         //
         todo!()
     });
@@ -56,7 +56,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");
-    order_worker_thread
+    _order_worker_thread
         .join()
         .expect("order_worker_thread has panicked");
     Ok(())

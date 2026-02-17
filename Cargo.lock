@@ -738,6 +738,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oms"
+version = "0.0.1"
+dependencies = [
+ "exchange",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1074,6 +1081,7 @@ name = "strategy"
 version = "0.0.1"
 dependencies = [
  "exchange",
+ "oms",
 ]
 
 [[package]]

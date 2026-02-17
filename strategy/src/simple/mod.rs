@@ -1,29 +1,21 @@
-use exchange::bybit::{
-    book::OrderBook,
-    order::{Order, OrderHandler, OrderSide, OrderType},
-};
+use exchange::OrderBook;
+use exchange::{Order, OrderSide, OrderType};
+use oms::OrderManagementSystem;
 use std::env;
 use std::str::FromStr;
 
 pub struct SimpleStrategy {
-    bybit: OrderHandler,
+    oms: OrderManagementSystem,
     spread: f64,
     size: f64,
     symbol: String,
 }
 impl SimpleStrategy {
     pub fn new(spread: f64, size: f64, symbol: &str) -> SimpleStrategy {
-        let base_url = "https://api-testnet.bybit.com";
-        let api_key = "xxxxxxxx";
-        let api_secret = "xxxxxxxxxxx";
-        let bybit = OrderHandler::new(
-            base_url.to_owned(),
-            api_key.to_owned(),
-            api_secret.to_owned(),
-        );
+        let oms = OrderManagementSystem::new();
         let symbol = symbol.to_string();
         SimpleStrategy {
-            bybit,
+            oms,
             spread,
             size,
             symbol,
@@ -77,7 +69,7 @@ impl SimpleStrategy {
                 qty: self.size,
                 price: bid_price,
             };
-            self.bybit.submit_order(bid_order);
+            self.oms.submit_order(bid_order);
 
             let ask_order = Order {
                 symbol: self.symbol.clone(),
@@ -86,7 +78,7 @@ impl SimpleStrategy {
                 qty: self.size,
                 price: ask_price,
             };
-            self.bybit.submit_order(ask_order);
+            self.oms.submit_order(ask_order);
         }
     }
 }

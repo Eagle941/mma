@@ -5,32 +5,12 @@ use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
 use http::StatusCode;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
 
+use crate::Order;
+
 type HmacSha256 = Hmac<Sha256>;
-
-#[derive(Serialize, Deserialize)]
-pub enum OrderSide {
-    BUY,
-    SELL,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum OrderType {
-    MARKET,
-    LIMIT,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Order {
-    pub symbol: String,
-    pub side: OrderSide,
-    pub order_type: OrderType,
-    pub qty: f64,
-    pub price: f64,
-}
 
 pub struct OrderHandler {
     base_url: String,

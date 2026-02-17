@@ -1,7 +1,7 @@
 [package]
-name = "strategy"
+name = "oms"
 version = "0.0.1"
-description = "This package contains the logic for the strategy which generates order commands to the exchange."
+description = "This package contains the order management system which keeps track of the orders sent to the exchange."
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
@@ -10,4 +10,3 @@ publish.workspace = true
 
 [dependencies]
 exchange = { path = "../exchange" }
-oms = { path = "../oms" }
