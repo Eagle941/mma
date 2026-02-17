@@ -63,7 +63,8 @@ impl DataHandler {
             match res {
                 SpotPublicResponse::Orderbook(res) => {
                     // Once you have subscribed successfully, you will receive a snapshot.
-                    // If you receive a new snapshot message, you will have to reset your local orderbook.
+                    // If you receive a new snapshot message, you will have to reset your local
+                    // orderbook.
                     if res.type_ == "snapshot" || res.data.u == 1 {
                         self.order_book.asks = res.data.a.iter().map(|item| item.into()).collect();
                         self.order_book.bids = res.data.b.iter().map(|item| item.into()).collect();
@@ -71,7 +72,8 @@ impl DataHandler {
                     }
 
                     // Receive a delta message, update the orderbook.
-                    // Note that asks and bids of a delta message **do not guarantee** to be ordered.
+                    // Note that asks and bids of a delta message **do not guarantee** to be
+                    // ordered.
                     self.process_delta(res.data);
 
                     // TODO: remove the cloning forced by the triple buffer consistency

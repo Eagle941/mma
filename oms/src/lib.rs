@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use exchange::{Order, bybit::order::OrderHandler};
+use exchange::Order;
+use exchange::bybit::order::OrderHandler;
 
 pub struct OrderManagementSystem {
     order_handler: OrderHandler,

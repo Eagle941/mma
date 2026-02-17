@@ -1,7 +1,8 @@
-use ::bybit::ws::response::OrderbookItem;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result};
 use std::str::FromStr;
+
+use ::bybit::ws::response::OrderbookItem;
+use serde::{Deserialize, Serialize};
 
 pub mod bybit;
 

@@ -1,7 +1,10 @@
+use std::time::Duration;
+use std::{env, process, thread};
+
 use clap::Parser;
-use exchange::{OrderBook, bybit::book::DataHandler};
+use exchange::OrderBook;
+use exchange::bybit::book::DataHandler;
 use exitcode::{OK, SOFTWARE};
-use std::{env, process, thread, time::Duration};
 use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
 

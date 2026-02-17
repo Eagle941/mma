@@ -1,8 +1,8 @@
-use exchange::OrderBook;
-use exchange::{Order, OrderSide, OrderType};
-use oms::OrderManagementSystem;
 use std::env;
 use std::str::FromStr;
+
+use exchange::{Order, OrderBook, OrderSide, OrderType};
+use oms::OrderManagementSystem;
 
 pub struct SimpleStrategy {
     oms: OrderManagementSystem,
