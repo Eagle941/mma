@@ -2,17 +2,22 @@ use std::env;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
-use exchange::{Order, OrderBook, OrderSide, OrderType};
+use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 
 #[derive(Clone, Debug)]
 pub struct SimpleStrategy {
     spread: f64,
     size: f64,
     symbol: String,
-    oms_channel: Sender<Order>,
+    oms_channel: Sender<OrderBuilder>,
 }
 impl SimpleStrategy {
-    pub fn new(oms_channel: Sender<Order>, spread: f64, size: f64, symbol: &str) -> SimpleStrategy {
+    pub fn new(
+        oms_channel: Sender<OrderBuilder>,
+        spread: f64,
+        size: f64,
+        symbol: &str,
+    ) -> SimpleStrategy {
         let symbol = symbol.to_string();
         SimpleStrategy {
             oms_channel,
@@ -22,7 +27,7 @@ impl SimpleStrategy {
         }
     }
 
-    pub fn factory(oms_channel: Sender<Order>) -> SimpleStrategy {
+    pub fn factory(oms_channel: Sender<OrderBuilder>) -> SimpleStrategy {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
 
         let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
@@ -63,7 +68,7 @@ impl SimpleStrategy {
             // TODO: Optimise String cloning
             // TODO: Make parallel order submission
             // TODO: Deal with channel send errors
-            let bid_order = Order {
+            let bid_order = OrderBuilder {
                 symbol: self.symbol.clone(),
                 side: OrderSide::BUY,
                 order_type: OrderType::LIMIT,
@@ -72,7 +77,7 @@ impl SimpleStrategy {
             };
             self.oms_channel.send(bid_order).unwrap();
 
-            let ask_order = Order {
+            let ask_order = OrderBuilder {
                 symbol: self.symbol.clone(),
                 side: OrderSide::SELL,
                 order_type: OrderType::LIMIT,

@@ -1,3 +1,4 @@
+use std::f64;
 use std::fmt::{Display, Formatter, Result};
 use std::str::FromStr;
 
@@ -57,11 +58,55 @@ pub enum OrderType {
     LIMIT,
 }
 
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+pub enum OrderStatus {
+    // Open Status
+    New,
+    PartiallyFilled,
+    Untriggered,
+    // Closed Status
+    Rejected,
+    PartiallyFilledCanceled,
+    Filled,
+    Cancelled,
+    Triggered,
+    Deactivated,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Order {
+pub struct OrderBuilder {
     pub symbol: String,
     pub side: OrderSide,
     pub order_type: OrderType,
     pub qty: f64,
     pub price: f64,
+}
+impl OrderBuilder {
+    pub fn build(self) -> Order {
+        Order {
+            order_id: String::new(),
+            order_status: OrderStatus::New,
+            symbol: self.symbol,
+            side: self.side,
+            order_type: self.order_type,
+            qty: self.qty,
+            price: self.price,
+            filled_qty: 0.0,
+            filled_price: f64::NAN,
+        }
+    }
+}
+
+// TODO: Add order timestamps
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Order {
+    pub order_id: String,
+    pub order_status: OrderStatus,
+    pub symbol: String,
+    pub side: OrderSide,
+    pub order_type: OrderType,
+    pub qty: f64,
+    pub price: f64,
+    pub filled_qty: f64,
+    pub filled_price: f64,
 }

@@ -331,7 +331,6 @@ dependencies = [
  "chrono",
  "hex",
  "hmac",
- "http 1.4.0",
  "rust-bybit",
  "serde",
  "serde_json",

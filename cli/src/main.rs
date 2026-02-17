@@ -4,7 +4,7 @@ use std::{env, process, thread};
 
 use clap::Parser;
 use exchange::bybit::book::DataHandler;
-use exchange::{Order, OrderBook};
+use exchange::{OrderBook, OrderBuilder};
 use exitcode::{OK, SOFTWARE};
 use oms::OrderManagementSystem;
 use strategy::simple::SimpleStrategy;
@@ -43,7 +43,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
-    let (tx, rx): (Sender<Order>, Receiver<Order>) = mpsc::channel();
+    let (tx, rx): (Sender<OrderBuilder>, Receiver<OrderBuilder>) = mpsc::channel();
     let strategy_thread = thread::spawn(move || {
         let simple_strategy = SimpleStrategy::factory(tx.clone());
         loop {

@@ -1,29 +1,38 @@
+use std::sync::mpsc::Sender;
 use std::thread;
 
 use attohttpc::Session;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
-use http::StatusCode;
+use serde::Deserialize;
 use serde_json::json;
 use sha2::Sha256;
 
-use crate::Order;
+use crate::{Order, OrderBuilder};
 
 type HmacSha256 = Hmac<Sha256>;
 
-#[derive(Debug, Default)]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderResponse<'a> {
+    pub order_id: &'a str,
+    pub order_link_id: &'a str,
+}
+
+#[derive(Debug)]
 pub struct OrderHandler {
     base_url: String,
     api_key: String,
     api_secret: String,
     recv_window: u32,
     session: Session,
+    to_oms: Sender<Order>,
 }
 impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(to_oms: Sender<Order>) -> Self {
         let base_url = "https://api-testnet.bybit.com".to_string();
         let api_key = "xxxxxxxx".to_string();
         let api_secret = "xxxxxxxxxxx".to_string();
@@ -37,6 +46,7 @@ impl OrderHandler {
         session.header("X-BAPI-API-KEY", &api_key);
         session.header("X-BAPI-RECV-WINDOW", recv_window);
         OrderHandler {
+            to_oms,
             base_url,
             api_key,
             api_secret,
@@ -45,7 +55,7 @@ impl OrderHandler {
         }
     }
 
-    pub fn submit_order(&self, order: Order) {
+    pub fn submit_order(&self, order_builder: OrderBuilder) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add additional exchange mandatory parameters
         let url = format!("{}/v5/order/create", self.base_url);
@@ -54,11 +64,11 @@ impl OrderHandler {
         // TODO: add timeInForce parameter
         let body = json!({
             "category": "spot",
-            "symbol": order.symbol,
-            "side": order.side,
-            "orderType": order.order_type,
-            "qty": order.qty,
-            "price": order.price
+            "symbol": order_builder.symbol,
+            "side": order_builder.side,
+            "orderType": order_builder.order_type,
+            "qty": order_builder.qty,
+            "price": order_builder.price
         });
         let signature = Self::generate_post_signature(
             &time_ms,
@@ -70,6 +80,9 @@ impl OrderHandler {
         .unwrap();
 
         // TODO: use non-blocking HTTP request and avoid creating a new thread.
+        // TODO: add orderLinkId for optimisations
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
         thread::scope(|_| {
             let res = self
                 .session
@@ -83,8 +96,14 @@ impl OrderHandler {
                 .send();
             match res {
                 Ok(x) => {
-                    if x.status() != StatusCode::OK {
+                    if !x.is_success() {
                         panic!("Failed order response {x:?}\n{body:#?}");
+                    } else {
+                        let content = x.text().unwrap();
+                        let content: OrderResponse = serde_json::from_str(&content).unwrap();
+                        let mut order = order_builder.build();
+                        order.order_id = content.order_id.to_string();
+                        self.to_oms.send(order).unwrap();
                     }
                 }
                 Err(x) => {
