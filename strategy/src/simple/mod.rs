@@ -1,28 +1,28 @@
 use std::env;
 use std::str::FromStr;
+use std::sync::mpsc::Sender;
 
 use exchange::{Order, OrderBook, OrderSide, OrderType};
-use oms::OrderManagementSystem;
 
+#[derive(Clone, Debug)]
 pub struct SimpleStrategy {
-    oms: OrderManagementSystem,
     spread: f64,
     size: f64,
     symbol: String,
+    oms_channel: Sender<Order>,
 }
 impl SimpleStrategy {
-    pub fn new(spread: f64, size: f64, symbol: &str) -> SimpleStrategy {
-        let oms = OrderManagementSystem::new();
+    pub fn new(oms_channel: Sender<Order>, spread: f64, size: f64, symbol: &str) -> SimpleStrategy {
         let symbol = symbol.to_string();
         SimpleStrategy {
-            oms,
+            oms_channel,
             spread,
             size,
             symbol,
         }
     }
 
-    pub fn factory() -> SimpleStrategy {
+    pub fn factory(oms_channel: Sender<Order>) -> SimpleStrategy {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
 
         let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
@@ -32,7 +32,7 @@ impl SimpleStrategy {
             env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
         let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
 
-        SimpleStrategy::new(spread, size, symbol.as_str())
+        SimpleStrategy::new(oms_channel, spread, size, symbol.as_str())
     }
 
     pub fn execute(&self, order_book: &OrderBook) {
@@ -62,6 +62,7 @@ impl SimpleStrategy {
 
             // TODO: Optimise String cloning
             // TODO: Make parallel order submission
+            // TODO: Deal with channel send errors
             let bid_order = Order {
                 symbol: self.symbol.clone(),
                 side: OrderSide::BUY,
@@ -69,7 +70,7 @@ impl SimpleStrategy {
                 qty: self.size,
                 price: bid_price,
             };
-            self.oms.submit_order(bid_order);
+            self.oms_channel.send(bid_order).unwrap();
 
             let ask_order = Order {
                 symbol: self.symbol.clone(),
@@ -78,7 +79,7 @@ impl SimpleStrategy {
                 qty: self.size,
                 price: ask_price,
             };
-            self.oms.submit_order(ask_order);
+            self.oms_channel.send(ask_order).unwrap();
         }
     }
 }

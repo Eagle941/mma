@@ -10,4 +10,3 @@ publish.workspace = true
 
 [dependencies]
 exchange = { path = "../exchange" }
-oms = { path = "../oms" }

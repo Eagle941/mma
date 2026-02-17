@@ -1,10 +1,12 @@
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use exchange::OrderBook;
 use exchange::bybit::book::DataHandler;
+use exchange::{Order, OrderBook};
 use exitcode::{OK, SOFTWARE};
+use oms::OrderManagementSystem;
 use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
 
@@ -41,8 +43,9 @@ fn run(_args: Args) -> anyhow::Result<()> {
     // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
+    let (tx, rx): (Sender<Order>, Receiver<Order>) = mpsc::channel();
     let strategy_thread = thread::spawn(move || {
-        let simple_strategy = SimpleStrategy::factory();
+        let simple_strategy = SimpleStrategy::factory(tx.clone());
         loop {
             let order_book = consumer.read();
             simple_strategy.execute(order_book);
@@ -50,17 +53,15 @@ fn run(_args: Args) -> anyhow::Result<()> {
         }
     });
 
-    let _order_worker_thread = thread::spawn(move || {
-        //
-        todo!()
+    let oms_thread = thread::spawn(move || {
+        let oms = OrderManagementSystem::new(rx);
+        oms.forward_orders();
     });
 
+    oms_thread.join().expect("oms_thread has panicked");
     ws_thread.join().expect("ws_thread has panicked");
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");
-    _order_worker_thread
-        .join()
-        .expect("order_worker_thread has panicked");
     Ok(())
 }

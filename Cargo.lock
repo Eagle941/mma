@@ -218,6 +218,7 @@ dependencies = [
  "dotenvy",
  "exchange",
  "exitcode",
+ "oms",
  "strategy",
  "triple_buffer",
 ]
@@ -1081,7 +1082,6 @@ name = "strategy"
 version = "0.0.1"
 dependencies = [
  "exchange",
- "oms",
 ]
 
 [[package]]
