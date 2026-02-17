@@ -56,7 +56,7 @@ impl DataHandler {
 
     // TODO: extract callback in separate function for testing.
     pub fn subscribe(&mut self, order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
-        let mut client = WebSocketApiClient::spot().build();
+        let mut client = WebSocketApiClient::spot().testnet().build();
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
 
         let callback = |res: SpotPublicResponse| {
