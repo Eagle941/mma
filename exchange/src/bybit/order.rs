@@ -12,6 +12,7 @@ use crate::Order;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[derive(Debug, Default)]
 pub struct OrderHandler {
     base_url: String,
     api_key: String,
@@ -20,7 +21,12 @@ pub struct OrderHandler {
     session: Session,
 }
 impl OrderHandler {
-    pub fn new(base_url: String, api_key: String, api_secret: String) -> Self {
+    // Temporary while secrets handling hasn't been implemented
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let base_url = "https://api-testnet.bybit.com".to_string();
+        let api_key = "xxxxxxxx".to_string();
+        let api_secret = "xxxxxxxxxxx".to_string();
         // how long an HTTP request is valid. It is also used to prevent replay
         // attacks.
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may

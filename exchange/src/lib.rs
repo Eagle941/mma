@@ -45,19 +45,19 @@ pub struct OrderBook {
     pub cts: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum OrderSide {
     BUY,
     SELL,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum OrderType {
     MARKET,
     LIMIT,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Order {
     pub symbol: String,
     pub side: OrderSide,

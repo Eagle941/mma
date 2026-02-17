@@ -3,23 +3,15 @@ use std::collections::HashMap;
 use exchange::Order;
 use exchange::bybit::order::OrderHandler;
 
+#[derive(Debug, Default)]
 pub struct OrderManagementSystem {
     order_handler: OrderHandler,
     _active_orders: HashMap<String, Order>,
 }
 impl OrderManagementSystem {
-    // Temporary while secrets handling hasn't been implemented
-    #[allow(clippy::new_without_default)]
     pub fn new() -> OrderManagementSystem {
-        let base_url = "https://api-testnet.bybit.com";
-        let api_key = "xxxxxxxx";
-        let api_secret = "xxxxxxxxxxx";
         OrderManagementSystem {
-            order_handler: OrderHandler::new(
-                base_url.to_owned(),
-                api_key.to_owned(),
-                api_secret.to_owned(),
-            ),
+            order_handler: OrderHandler::new(),
             _active_orders: HashMap::new(),
         }
     }
