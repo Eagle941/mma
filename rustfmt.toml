@@ -1,6 +1,8 @@
 # If this version is changed, amend the edition set in `Cargo.toml`.
 edition = "2024"
 
+unstable_features = true
+
 # Better readability
 format_code_in_doc_comments = true
 wrap_comments = true

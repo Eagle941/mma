@@ -54,8 +54,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
     });
 
     let oms_thread = thread::spawn(move || {
-        let oms = OrderManagementSystem::new(rx);
-        oms.forward_orders();
+        let mut oms = OrderManagementSystem::new(rx);
+        oms.cycle();
     });
 
     oms_thread.join().expect("oms_thread has panicked");

@@ -7,11 +7,24 @@ use hex;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use serde_json::json;
+use serde_json::value::RawValue;
 use sha2::Sha256;
 
 use crate::{Order, OrderBuilder};
 
 type HmacSha256 = Hmac<Sha256>;
+
+// TODO: Add automatic casting of `result` to various struct types like in bybit
+// library.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CommonResponse<'a> {
+    pub ret_code: u32,
+    pub ret_msg: &'a str,
+    pub result: Box<RawValue>,
+    pub ret_ext_info: Box<RawValue>,
+    pub time: u64,
+}
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +46,7 @@ impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
     pub fn new(to_oms: Sender<Order>) -> Self {
+        // TODO: add option to switch between testnet and production.
         let base_url = "https://api-testnet.bybit.com".to_string();
         let api_key = "xxxxxxxx".to_string();
         let api_secret = "xxxxxxxxxxx".to_string();
@@ -97,17 +111,26 @@ impl OrderHandler {
             match res {
                 Ok(x) => {
                     if !x.is_success() {
-                        panic!("Failed order response {x:?}\n{body:#?}");
+                        panic!("Failed order response. Status code {}", x.status());
                     } else {
                         let content = x.text().unwrap();
-                        let content: OrderResponse = serde_json::from_str(&content).unwrap();
-                        let mut order = order_builder.build();
-                        order.order_id = content.order_id.to_string();
-                        self.to_oms.send(order).unwrap();
+                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
+                        if content.ret_code == 0 {
+                            let content: OrderResponse =
+                                serde_json::from_str(content.result.get()).unwrap();
+                            let mut order = order_builder.build();
+                            order.order_id = content.order_id.to_string();
+                            self.to_oms.send(order).unwrap();
+                        } else {
+                            panic!(
+                                "Failed order request. Code: {}. Msg: {}",
+                                content.ret_code, content.ret_msg
+                            );
+                        }
                     }
                 }
                 Err(x) => {
-                    panic!("Failed to send order {x}\n{body:#?}");
+                    panic!("Failed to send order request {x}\n{body:#?}");
                 }
             }
         });
