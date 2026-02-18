@@ -48,7 +48,7 @@ impl SimpleStrategy {
             let last_ask = order_book.asks.last().unwrap();
 
             println!(
-                "B {:.2} {:.2} | A {:.2} {:.2} | S {:.2}",
+                "B {:.3} {:.3} | A {:.3} {:.3} | S {:.3}",
                 last_bid.price,
                 first_bid.price,
                 first_ask.price,

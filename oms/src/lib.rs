@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder};
@@ -31,17 +32,33 @@ impl OrderManagementSystem {
         }
     }
 
+    /// This function is responsible for receiving the order commands from the
+    /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&self) {
         while let Ok(order_builder) = self.from_strategy.try_recv() {
             self.order_handler.submit_order(order_builder);
         }
     }
 
+    /// This function is responsible for recording the latest updates to the
+    /// orders submitted to the exchange. It populates the `active_orders`
+    /// HashMap as soon as the order has been submitted successfully to the
+    /// exchange. Further order updates are received from the orders WebSocket.
     pub fn order_response(&mut self) {
-        // The logic doesn't consider order updates yet (where the key exists
-        // already).
-        while let Ok(order) = self.from_order_handler.try_recv() {
-            self.active_orders.insert(order.order_id.clone(), order);
+        while let Ok(new_order) = self.from_order_handler.try_recv() {
+            // TODO: optimise insert or update logic.
+            match self.active_orders.get_mut(&new_order.order_id) {
+                Some(old_order) => {
+                    old_order.order_status = new_order.order_status;
+                    old_order.filled_price = new_order.filled_price;
+                    old_order.filled_qty = new_order.filled_qty;
+                }
+                None => {
+                    self.active_orders
+                        .insert(new_order.order_id.clone(), new_order)
+                        .unwrap();
+                }
+            };
         }
     }
 }

@@ -1,6 +1,6 @@
-use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
+use bybit::WebSocketApiClient;
 use triple_buffer::Input;
 
 use crate::{Level, OrderBook};
@@ -56,6 +56,7 @@ impl DataHandler {
 
     // TODO: extract callback in separate function for testing.
     pub fn subscribe(&mut self, order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
+        // TODO: add option to switch between testnet and production.
         let mut client = WebSocketApiClient::spot().testnet().build();
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
 

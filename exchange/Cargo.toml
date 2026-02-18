@@ -17,4 +17,5 @@ rust-bybit = "0.2.0"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["raw_value"] }
 sha2 = "0.10.9"
+strum = { version = "0.27.2", features = ["derive"] }
 triple_buffer = "8.1.1"

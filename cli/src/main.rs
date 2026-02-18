@@ -29,6 +29,7 @@ fn main() {
 
 fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::dotenv()?;
+    dotenvy::from_filename(".secrets")?;
 
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();

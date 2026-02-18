@@ -2,8 +2,9 @@ use std::f64;
 use std::fmt::{Display, Formatter, Result};
 use std::str::FromStr;
 
-use ::bybit::ws::response::OrderbookItem;
+use ::bybit::ws::response::{Order as BybitOrder, OrderbookItem};
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 
 pub mod bybit;
 
@@ -46,19 +47,19 @@ pub struct OrderBook {
     pub cts: f64,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
 pub enum OrderSide {
     BUY,
     SELL,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
 pub enum OrderType {
     MARKET,
     LIMIT,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
 pub enum OrderStatus {
     // Open Status
     New,
@@ -71,6 +72,14 @@ pub enum OrderStatus {
     Cancelled,
     Triggered,
     Deactivated,
+}
+impl OrderStatus {
+    pub fn is_open(&self) -> bool {
+        match self {
+            OrderStatus::New | OrderStatus::PartiallyFilled | OrderStatus::Untriggered => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -109,4 +118,20 @@ pub struct Order {
     pub price: f64,
     pub filled_qty: f64,
     pub filled_price: f64,
+}
+impl<'a> From<&BybitOrder<'a>> for Order {
+    fn from(src: &BybitOrder) -> Self {
+        // TODO: this `try_into` is very dangerous. It needs to be improved.
+        Order {
+            order_id: src.order_id.to_string(),
+            order_status: src.order_status.try_into().unwrap(),
+            symbol: src.symbol.to_string(),
+            side: src.side.try_into().unwrap(),
+            order_type: src.order_type.try_into().unwrap(),
+            qty: f64::from_str(src.qty).unwrap(),
+            price: f64::from_str(src.price).unwrap(),
+            filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
+            filled_price: f64::from_str(src.avg_price).unwrap(),
+        }
+    }
 }
