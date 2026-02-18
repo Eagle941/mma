@@ -3,8 +3,9 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use exchange::bybit::book::DataHandler;
-use exchange::{OrderBook, OrderBuilder};
+use exchange::bybit::book_ws::BookWebSocket;
+use exchange::bybit::order_ws::OrderWebSocket;
+use exchange::{Order, OrderBook, OrderBuilder};
 use exitcode::{OK, SOFTWARE};
 use oms::OrderManagementSystem;
 use strategy::simple::SimpleStrategy;
@@ -34,19 +35,20 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
 
-    let ws_thread = thread::spawn(move || {
+    let book_ws_thread = thread::spawn(move || {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        let mut data_handler = DataHandler::default();
-        data_handler.subscribe(&mut producer, &symbol);
+        let mut handler = BookWebSocket::default();
+        handler.subscribe(&mut producer, &symbol);
     });
 
     // Added sleep to give time to the websocket to retrieve the first order
     // book snapshot
     thread::sleep(Duration::from_millis(1000));
 
-    let (tx, rx): (Sender<OrderBuilder>, Receiver<OrderBuilder>) = mpsc::channel();
+    let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
+        mpsc::channel();
     let strategy_thread = thread::spawn(move || {
-        let simple_strategy = SimpleStrategy::factory(tx.clone());
+        let simple_strategy = SimpleStrategy::factory(order_builder_to_oms.clone());
         loop {
             let order_book = consumer.read();
             simple_strategy.execute(order_book);
@@ -54,13 +56,26 @@ fn run(_args: Args) -> anyhow::Result<()> {
         }
     });
 
+    let (order_to_oms, from_order_handler): (Sender<Order>, Receiver<Order>) = mpsc::channel();
+    let order_to_oms_cloned = order_to_oms.clone();
+    let order_ws_thread = thread::spawn(move || {
+        let handler = OrderWebSocket::new(order_to_oms);
+        handler.subscribe();
+    });
+
     let oms_thread = thread::spawn(move || {
-        let mut oms = OrderManagementSystem::new(rx);
+        // TODO: Improve this nested use of channels. OMS takes both sender and receiver
+        // channel.
+        let mut oms =
+            OrderManagementSystem::new(from_strategy, from_order_handler, order_to_oms_cloned);
         oms.cycle();
     });
 
     oms_thread.join().expect("oms_thread has panicked");
-    ws_thread.join().expect("ws_thread has panicked");
+    book_ws_thread.join().expect("book_ws_thread has panicked");
+    order_ws_thread
+        .join()
+        .expect("order_ws_thread has panicked");
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");

@@ -2,8 +2,6 @@ use std::sync::mpsc::Sender;
 use std::{env, thread};
 
 use attohttpc::Session;
-use bybit::ws::response::PrivateResponse;
-use bybit::WebSocketApiClient;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
@@ -69,34 +67,6 @@ impl OrderHandler {
             api_secret,
             recv_window,
             session,
-        }
-    }
-
-    pub fn subscribe(&self) {
-        // TODO: add option to switch between testnet and production.
-        let mut client = WebSocketApiClient::private()
-            .testnet()
-            .build_with_credentials(&self.api_key, &self.api_secret);
-        client.subscribe_order();
-
-        let callback = |res: PrivateResponse| match res {
-            PrivateResponse::Order(res) => {
-                let data = res.data;
-                for order in data {
-                    self.to_oms.send((&order).into()).unwrap();
-                }
-            }
-            PrivateResponse::Op(res) => {
-                if !res.success {
-                    println!("{res:?}")
-                }
-            }
-            x => unreachable!("PrivateResponse::{x:?} not implemented"),
-        };
-
-        match client.run(callback) {
-            Ok(_) => {}
-            Err(e) => eprintln!("{}", e),
         }
     }
 

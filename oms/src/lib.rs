@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread;
+use std::sync::mpsc::{Receiver, Sender};
 
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder};
@@ -15,8 +14,11 @@ pub struct OrderManagementSystem {
     active_orders: HashMap<String, Order>,
 }
 impl OrderManagementSystem {
-    pub fn new(from_strategy: Receiver<OrderBuilder>) -> OrderManagementSystem {
-        let (to_oms, from_order_handler): (Sender<Order>, Receiver<Order>) = mpsc::channel();
+    pub fn new(
+        from_strategy: Receiver<OrderBuilder>,
+        from_order_handler: Receiver<Order>,
+        to_oms: Sender<Order>,
+    ) -> OrderManagementSystem {
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -35,8 +37,17 @@ impl OrderManagementSystem {
     /// This function is responsible for receiving the order commands from the
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&self) {
+        // This is a very simple risk management. Don't have more than two orders
+        // running at the same time.
+        let num_active_orders = self
+            .active_orders
+            .iter()
+            .filter(|(_, o)| o.order_status.is_open())
+            .count();
         while let Ok(order_builder) = self.from_strategy.try_recv() {
-            self.order_handler.submit_order(order_builder);
+            if num_active_orders < 2 {
+                self.order_handler.submit_order(order_builder);
+            }
         }
     }
 

@@ -1,6 +1,6 @@
+use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
-use bybit::WebSocketApiClient;
 use triple_buffer::Input;
 
 use crate::{Level, OrderBook};
@@ -9,10 +9,10 @@ use crate::{Level, OrderBook};
 pub const ORDER_BOOK_LEVELS: usize = 50;
 
 #[derive(Debug, Default)]
-pub struct DataHandler {
+pub struct BookWebSocket {
     order_book: OrderBook,
 }
-impl DataHandler {
+impl BookWebSocket {
     // TODO: Optimise order book updates
     fn process_delta(&mut self, data: Orderbook) {
         // process asks
@@ -88,7 +88,7 @@ impl DataHandler {
                         println!("{res:?}")
                     }
                 }
-                x => unreachable!("SpotPublicResponse::{x:?} not implemented"),
+                x => println!("SpotPublicResponse::{x:?} not implemented"),
             }
         };
 
