@@ -13,6 +13,7 @@ pub struct Info {
     pub base_precision: f64,
     pub quote_precision: f64,
     pub tick_size: f64,
+    pub decimal_places: usize,
 }
 impl Info {
     pub fn new(symbol: String) -> Self {
@@ -26,6 +27,7 @@ impl Info {
             base_precision: f64::NAN,
             quote_precision: f64::NAN,
             tick_size: f64::NAN,
+            decimal_places: 0,
         };
         info.get_info();
         info
@@ -70,9 +72,12 @@ impl Info {
                                     s["lotSizeFilter"]["quotePrecision"].as_str().unwrap(),
                                 )
                                 .unwrap();
-                                self.tick_size =
-                                    f64::from_str(s["priceFilter"]["tickSize"].as_str().unwrap())
-                                        .unwrap();
+                                let tick_size_str = s["priceFilter"]["tickSize"].as_str().unwrap();
+                                self.tick_size = f64::from_str(tick_size_str).unwrap();
+                                // 0.001 --> 3
+                                self.decimal_places = tick_size_str.len()
+                                    - tick_size_str.find(".").unwrap_or_default()
+                                    - 1;
                                 return;
                             }
                         }

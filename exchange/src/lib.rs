@@ -88,7 +88,7 @@ pub struct OrderBuilder {
     pub side: OrderSide,
     pub order_type: OrderType,
     pub qty: f64,
-    pub price: f64,
+    pub price: String,
 }
 impl OrderBuilder {
     pub fn build(self) -> Order {
@@ -99,7 +99,7 @@ impl OrderBuilder {
             side: self.side,
             order_type: self.order_type,
             qty: self.qty,
-            price: self.price,
+            price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
         }
@@ -107,6 +107,7 @@ impl OrderBuilder {
 }
 
 // TODO: Add order timestamps
+// TODO: Is it better to keep price as String instead of f64?
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Order {
     pub order_id: String,

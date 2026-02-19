@@ -84,7 +84,7 @@ impl OrderHandler {
             "side": order_builder.side,
             "orderType": order_builder.order_type,
             "qty": order_builder.qty.to_string(),
-            "price": order_builder.price.to_string()
+            "price": order_builder.price
         });
         let signature = Self::generate_post_signature(
             &time_ms,

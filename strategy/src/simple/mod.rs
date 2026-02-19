@@ -20,6 +20,7 @@ impl SimpleStrategy {
         symbol: &str,
     ) -> SimpleStrategy {
         let instrument_info = Info::new(symbol.to_string());
+        println!("{instrument_info:#?}");
         SimpleStrategy {
             oms_channel,
             spread,
@@ -50,19 +51,26 @@ impl SimpleStrategy {
             let first_ask = order_book.asks.first().unwrap();
             let last_ask = order_book.asks.last().unwrap();
 
-            let precision = self.instrument_info.tick_size;
+            let decimal_digits = self.instrument_info.decimal_places;
             println!(
-                "B {:.5} {:.5} | A {:.5} {:.5} | S {:.5}",
+                "B {:.*} {:.*} | A {:.*} {:.*} | S {:.*}",
+                decimal_digits,
                 last_bid.price,
+                decimal_digits,
                 first_bid.price,
+                decimal_digits,
                 first_ask.price,
+                decimal_digits,
                 last_ask.price,
+                decimal_digits,
                 if first_bid.price != 0.0 && first_ask.price != 0.0 {
                     first_ask.price - first_bid.price
                 } else {
                     0.0
                 }
             );
+
+            let precision = self.instrument_info.tick_size;
 
             let mid_price = (first_ask.price + first_bid.price) / 2.0;
             let half_spread = mid_price * self.spread / 2.0;
@@ -80,7 +88,7 @@ impl SimpleStrategy {
                 side: OrderSide::Buy,
                 order_type: OrderType::Limit,
                 qty: self.size,
-                price: bid_price,
+                price: format!("{bid_price:.*}", decimal_digits),
             };
             self.oms_channel.send(bid_order).unwrap();
 
@@ -89,7 +97,7 @@ impl SimpleStrategy {
                 side: OrderSide::Sell,
                 order_type: OrderType::Limit,
                 qty: self.size,
-                price: ask_price,
+                price: format!("{ask_price:.*}", decimal_digits),
             };
             self.oms_channel.send(ask_order).unwrap();
         }
