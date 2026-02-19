@@ -35,6 +35,7 @@ impl SimpleStrategy {
         let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
         let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
 
+        // TODO: calculate minimum order size from the `Info` struct.
         let size =
             env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
         let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
