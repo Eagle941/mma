@@ -49,14 +49,14 @@ pub struct OrderBook {
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
 pub enum OrderSide {
-    BUY,
-    SELL,
+    Buy,
+    Sell,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
 pub enum OrderType {
-    MARKET,
-    LIMIT,
+    Market,
+    Limit,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]

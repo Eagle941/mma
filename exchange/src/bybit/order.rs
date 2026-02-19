@@ -82,8 +82,8 @@ impl OrderHandler {
             "symbol": order_builder.symbol,
             "side": order_builder.side,
             "orderType": order_builder.order_type,
-            "qty": order_builder.qty,
-            "price": order_builder.price
+            "qty": order_builder.qty.to_string(),
+            "price": order_builder.price.to_string()
         });
         let signature = Self::generate_post_signature(
             &time_ms,
@@ -93,7 +93,7 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
-
+        println!("Order {:#?}", body);
         // TODO: use non-blocking HTTP request and avoid creating a new thread.
         // TODO: add orderLinkId for optimisations
         // TODO: move from HTTP request to WebSocket

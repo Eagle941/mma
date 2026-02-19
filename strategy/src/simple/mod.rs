@@ -70,8 +70,8 @@ impl SimpleStrategy {
             // TODO: Deal with channel send errors
             let bid_order = OrderBuilder {
                 symbol: self.symbol.clone(),
-                side: OrderSide::BUY,
-                order_type: OrderType::LIMIT,
+                side: OrderSide::Buy,
+                order_type: OrderType::Limit,
                 qty: self.size,
                 price: bid_price,
             };
@@ -79,8 +79,8 @@ impl SimpleStrategy {
 
             let ask_order = OrderBuilder {
                 symbol: self.symbol.clone(),
-                side: OrderSide::SELL,
-                order_type: OrderType::LIMIT,
+                side: OrderSide::Sell,
+                order_type: OrderType::Limit,
                 qty: self.size,
                 price: ask_price,
             };
