@@ -79,6 +79,7 @@ impl OrderHandler {
         // TODO: add timeInForce parameter
         let body = json!({
             "category": "spot",
+            "isLeverage": 1,
             "symbol": order_builder.symbol,
             "side": order_builder.side,
             "orderType": order_builder.order_type,
