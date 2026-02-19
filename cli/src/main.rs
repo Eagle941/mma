@@ -4,6 +4,7 @@ use std::{env, process, thread};
 
 use clap::Parser;
 use exchange::bybit::book_ws::BookWebSocket;
+use exchange::bybit::info::Info;
 use exchange::bybit::order_ws::OrderWebSocket;
 use exchange::{Order, OrderBook, OrderBuilder};
 use exitcode::{OK, SOFTWARE};
@@ -32,6 +33,9 @@ fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::dotenv().expect(".env file must be present with configuration parameters.");
     dotenvy::from_filename(".secrets")
         .expect(".secrets file must be present with API_KEY and API_SECRET.");
+
+    let instrument_info = Info::factory();
+    println!("{instrument_info:#?}");
 
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
