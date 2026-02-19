@@ -2,13 +2,14 @@ use std::env;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 
+use exchange::bybit::info::Info;
 use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 
 #[derive(Clone, Debug)]
 pub struct SimpleStrategy {
     spread: f64,
     size: f64,
-    symbol: String,
+    instrument_info: Info,
     oms_channel: Sender<OrderBuilder>,
 }
 impl SimpleStrategy {
@@ -18,18 +19,19 @@ impl SimpleStrategy {
         size: f64,
         symbol: &str,
     ) -> SimpleStrategy {
-        let symbol = symbol.to_string();
+        let instrument_info = Info::new(symbol.to_string());
         SimpleStrategy {
             oms_channel,
             spread,
             size,
-            symbol,
+            instrument_info,
         }
     }
 
     pub fn factory(oms_channel: Sender<OrderBuilder>) -> SimpleStrategy {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
 
+        // TODO: make spread proportionate to the decimal places.
         let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
         let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
 
@@ -47,8 +49,9 @@ impl SimpleStrategy {
             let first_ask = order_book.asks.first().unwrap();
             let last_ask = order_book.asks.last().unwrap();
 
+            let precision = self.instrument_info.tick_size;
             println!(
-                "B {:.3} {:.3} | A {:.3} {:.3} | S {:.3}",
+                "B {:.5} {:.5} | A {:.5} {:.5} | S {:.5}",
                 last_bid.price,
                 first_bid.price,
                 first_ask.price,
@@ -65,11 +68,14 @@ impl SimpleStrategy {
             let bid_price = mid_price - half_spread;
             let ask_price = mid_price + half_spread;
 
+            let bid_price = (bid_price / precision).floor() * precision;
+            let ask_price = (ask_price / precision).floor() * precision;
+
             // TODO: Optimise String cloning
             // TODO: Make parallel order submission
             // TODO: Deal with channel send errors
             let bid_order = OrderBuilder {
-                symbol: self.symbol.clone(),
+                symbol: self.instrument_info.symbol.clone(),
                 side: OrderSide::Buy,
                 order_type: OrderType::Limit,
                 qty: self.size,
@@ -78,7 +84,7 @@ impl SimpleStrategy {
             self.oms_channel.send(bid_order).unwrap();
 
             let ask_order = OrderBuilder {
-                symbol: self.symbol.clone(),
+                symbol: self.instrument_info.symbol.clone(),
                 side: OrderSide::Sell,
                 order_type: OrderType::Limit,
                 qty: self.size,

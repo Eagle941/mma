@@ -7,11 +7,12 @@ use serde_json::Value;
 #[derive(Clone, Debug)]
 pub struct Info {
     base_url: String,
-    symbol: String,
-    base_coin: String,
-    quote_coin: String,
-    base_precision: f64,
-    quote_precision: f64,
+    pub symbol: String,
+    pub base_coin: String,
+    pub quote_coin: String,
+    pub base_precision: f64,
+    pub quote_precision: f64,
+    pub tick_size: f64,
 }
 impl Info {
     pub fn new(symbol: String) -> Self {
@@ -24,6 +25,7 @@ impl Info {
             quote_coin: String::default(),
             base_precision: f64::NAN,
             quote_precision: f64::NAN,
+            tick_size: f64::NAN,
         };
         info.get_info();
         info
@@ -68,6 +70,9 @@ impl Info {
                                     s["lotSizeFilter"]["quotePrecision"].as_str().unwrap(),
                                 )
                                 .unwrap();
+                                self.tick_size =
+                                    f64::from_str(s["priceFilter"]["tickSize"].as_str().unwrap())
+                                        .unwrap();
                                 return;
                             }
                         }
