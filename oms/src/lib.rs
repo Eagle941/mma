@@ -45,8 +45,12 @@ impl OrderManagementSystem {
             .filter(|(_, o)| o.order_status.is_open())
             .count();
         while let Ok(order_builder) = self.from_strategy.try_recv() {
-            if num_active_orders < 2 {
+            if num_active_orders == 0 {
                 self.order_handler.submit_order(order_builder);
+            } else if num_active_orders == 1 && self.active_orders.len() % 2 == 1 {
+                self.order_handler.submit_order(order_builder);
+            } else {
+                break;
             }
         }
     }

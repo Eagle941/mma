@@ -7,23 +7,16 @@ use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 
 #[derive(Clone, Debug)]
 pub struct SimpleStrategy {
-    spread: f64,
     size: f64,
     instrument_info: Info,
     oms_channel: Sender<OrderBuilder>,
 }
 impl SimpleStrategy {
-    pub fn new(
-        oms_channel: Sender<OrderBuilder>,
-        spread: f64,
-        size: f64,
-        symbol: &str,
-    ) -> SimpleStrategy {
+    pub fn new(oms_channel: Sender<OrderBuilder>, size: f64, symbol: &str) -> SimpleStrategy {
         let instrument_info = Info::new(symbol.to_string());
         println!("{instrument_info:#?}");
         SimpleStrategy {
             oms_channel,
-            spread,
             size,
             instrument_info,
         }
@@ -32,16 +25,12 @@ impl SimpleStrategy {
     pub fn factory(oms_channel: Sender<OrderBuilder>) -> SimpleStrategy {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
 
-        // TODO: make spread proportionate to the decimal places.
-        let spread = env::var("MMA_SPREAD").expect("MMA_SPREAD env variable must not be blank.");
-        let spread = f64::from_str(&spread).expect("MMA_SPREAD is not a valid number.");
-
         // TODO: calculate minimum order size from the `Info` struct.
         let size =
             env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
         let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
 
-        SimpleStrategy::new(oms_channel, spread, size, symbol.as_str())
+        SimpleStrategy::new(oms_channel, size, symbol.as_str())
     }
 
     pub fn execute(&self, order_book: &OrderBook) {
@@ -72,7 +61,7 @@ impl SimpleStrategy {
 
             let precision = self.instrument_info.tick_size;
 
-            if (first_ask.price - first_bid.price > precision * 4.0) {
+            if first_ask.price - first_bid.price > precision * 4.0 {
                 let bid_price = first_bid.price - (precision * 2.0);
                 let ask_price = first_ask.price + (precision * 2.0);
 
