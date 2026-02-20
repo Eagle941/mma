@@ -132,7 +132,7 @@ impl<'a> From<&BybitOrder<'a>> for Order {
             qty: f64::from_str(src.qty).unwrap(),
             price: f64::from_str(src.price).unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
-            filled_price: f64::from_str(src.avg_price).unwrap(),
+            filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
         }
     }
 }
