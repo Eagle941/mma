@@ -65,6 +65,7 @@ impl OrderWebSocket {
                     println!("{res:?}")
                 }
             }
+            PrivateResponse::Pong(_) => (),
             x => println!("PrivateResponse::{x:?} not implemented"),
         };
 
