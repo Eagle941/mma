@@ -65,9 +65,6 @@ impl SimpleStrategy {
                 let bid_price = first_bid.price - (precision * 2.0);
                 let ask_price = first_ask.price + (precision * 2.0);
 
-                let bid_price = (bid_price / precision).floor() * precision;
-                let ask_price = (ask_price / precision).floor() * precision;
-
                 // TODO: Optimise String cloning
                 // TODO: Make parallel order submission
                 // TODO: Deal with channel send errors
