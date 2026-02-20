@@ -61,7 +61,9 @@ impl SimpleStrategy {
 
             let precision = self.instrument_info.tick_size;
 
-            if first_ask.price - first_bid.price > precision * 4.0 {
+            if first_ask.price - first_bid.price > precision * 4.0
+                && first_ask.price - first_bid.price < precision * 8.0
+            {
                 let bid_price = first_bid.price - (precision * 2.0);
                 let ask_price = first_ask.price + (precision * 2.0);
 
