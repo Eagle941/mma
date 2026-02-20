@@ -21,15 +21,15 @@ monitoring.
 |         |                                                             |
 |         v                                                             |
 |  +-------------------+      +-------------------+                     |
-|  |   Pricing & Quote | <--> |   Risk & Inventory |                    |
-|  |      Engine       |      |     Management     |                    |
+|  |  Pricing & Quote  | <--> |  Risk & Inventory |                     |
+|  |  Engine           |      |  Management       |                     |
 |  +-------------------+      +-------------------+                     |
-|         | ^                              |                            |
-|         v |                              v                            |
-|  +-------------------+        +-------------------+                   |
-|  |  Order Management  |       |   Hedging Engine  |                   |
-|  |   System (OMS)     |       |   (Optional)      |                   |
-|  +-------------------+        +-------------------+                   |
+|         | ^                            |                              |
+|         v |                            v                              |
+|  +-------------------+      +-------------------+                     |
+|  |  Order Management |      |  Hedging Engine   |                     |
+|  |  System (OMS)     |      |  (Optional)       |                     |
+|  +-------------------+      +-------------------+                     |
 |         |                              |                              |
 +---------|------------------------------|------------------------------+
           |                              |
@@ -38,8 +38,8 @@ monitoring.
 |                        EXCHANGE CONNECTION LAYER                      |
 |                                                                       |
 |  +-------------------+        +-------------------+                   |
-|  |   Market Data     |        |   Order Execution |                   |
-|  |   Feed Handler    |        |      Handler      |                   |
+|  |  Market Data      |        |  Order Execution  |                   |
+|  |  Feed Handler     |        |  Handler          |                   |
 |  +-------------------+        +-------------------+                   |
 |         | ^                              | ^                          |
 +---------|--------------------------------|----------------------------+
