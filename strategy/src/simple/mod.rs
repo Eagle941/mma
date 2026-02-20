@@ -72,34 +72,34 @@ impl SimpleStrategy {
 
             let precision = self.instrument_info.tick_size;
 
-            let mid_price = (first_ask.price + first_bid.price) / 2.0;
-            let half_spread = mid_price * self.spread / 2.0;
-            let bid_price = mid_price - half_spread;
-            let ask_price = mid_price + half_spread;
+            if (first_ask.price - first_bid.price > precision * 4.0) {
+                let bid_price = first_bid.price - (precision * 2.0);
+                let ask_price = first_ask.price + (precision * 2.0);
 
-            let bid_price = (bid_price / precision).floor() * precision;
-            let ask_price = (ask_price / precision).floor() * precision;
+                let bid_price = (bid_price / precision).floor() * precision;
+                let ask_price = (ask_price / precision).floor() * precision;
 
-            // TODO: Optimise String cloning
-            // TODO: Make parallel order submission
-            // TODO: Deal with channel send errors
-            let bid_order = OrderBuilder {
-                symbol: self.instrument_info.symbol.clone(),
-                side: OrderSide::Buy,
-                order_type: OrderType::Limit,
-                qty: self.size,
-                price: format!("{bid_price:.*}", decimal_digits),
-            };
-            self.oms_channel.send(bid_order).unwrap();
+                // TODO: Optimise String cloning
+                // TODO: Make parallel order submission
+                // TODO: Deal with channel send errors
+                let bid_order = OrderBuilder {
+                    symbol: self.instrument_info.symbol.clone(),
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Limit,
+                    qty: self.size,
+                    price: format!("{bid_price:.*}", decimal_digits),
+                };
+                self.oms_channel.send(bid_order).unwrap();
 
-            let ask_order = OrderBuilder {
-                symbol: self.instrument_info.symbol.clone(),
-                side: OrderSide::Sell,
-                order_type: OrderType::Limit,
-                qty: self.size,
-                price: format!("{ask_price:.*}", decimal_digits),
-            };
-            self.oms_channel.send(ask_order).unwrap();
+                let ask_order = OrderBuilder {
+                    symbol: self.instrument_info.symbol.clone(),
+                    side: OrderSide::Sell,
+                    order_type: OrderType::Limit,
+                    qty: self.size,
+                    price: format!("{ask_price:.*}", decimal_digits),
+                };
+                self.oms_channel.send(ask_order).unwrap();
+            }
         }
     }
 }
