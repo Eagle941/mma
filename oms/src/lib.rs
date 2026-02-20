@@ -65,9 +65,10 @@ impl OrderManagementSystem {
                     old_order.filled_qty = new_order.filled_qty;
                 }
                 None => {
+                    // NOTE: `insert` returns an option, but we don't need the result, therefore
+                    // `unwrap()` isn't called.
                     self.active_orders
-                        .insert(new_order.order_id.clone(), new_order)
-                        .unwrap();
+                        .insert(new_order.order_id.clone(), new_order);
                 }
             };
         }
