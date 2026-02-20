@@ -4,6 +4,10 @@ use std::sync::mpsc::{Receiver, Sender};
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder};
 
+use crate::risk::RiskManager;
+
+pub mod risk;
+
 #[derive(Debug)]
 pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
@@ -37,20 +41,9 @@ impl OrderManagementSystem {
     /// This function is responsible for receiving the order commands from the
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&self) {
-        // This is a very simple risk management. Don't have more than two orders
-        // running at the same time.
-        let num_active_orders = self
-            .active_orders
-            .iter()
-            .filter(|(_, o)| o.order_status.is_open())
-            .count();
         while let Ok(order_builder) = self.from_strategy.try_recv() {
-            if num_active_orders == 0 {
+            if RiskManager::submit_order(&self.active_orders, &order_builder) {
                 self.order_handler.submit_order(order_builder);
-            } else if num_active_orders == 1 && self.active_orders.len() % 2 == 1 {
-                self.order_handler.submit_order(order_builder);
-            } else {
-                break;
             }
         }
     }
@@ -69,10 +62,15 @@ impl OrderManagementSystem {
                     old_order.filled_qty = new_order.filled_qty;
                 }
                 None => {
-                    // NOTE: `insert` returns an option, but we don't need the result, therefore
-                    // `unwrap()` isn't called.
-                    self.active_orders
-                        .insert(new_order.order_id.clone(), new_order);
+                    // NOTE: `insert` returns an option, but we don't need the
+                    // result, therefore `unwrap()` isn't called.
+                    // NOTE: `from_bot` is set true only when the order is
+                    // generated from the bot. This is to differentiate from
+                    // orders generated from the UI.
+                    if new_order.from_bot {
+                        self.active_orders
+                            .insert(new_order.order_id.clone(), new_order);
+                    }
                 }
             };
         }

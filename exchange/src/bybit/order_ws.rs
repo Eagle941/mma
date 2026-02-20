@@ -1,8 +1,8 @@
 use std::env;
 use std::sync::mpsc::Sender;
 
-use bybit::WebSocketApiClient;
 use bybit::ws::response::PrivateResponse;
+use bybit::WebSocketApiClient;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 

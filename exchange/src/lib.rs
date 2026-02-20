@@ -47,19 +47,19 @@ pub struct OrderBook {
     pub cts: f64,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderSide {
     Buy,
     Sell,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderStatus {
     // Open Status
     New,
@@ -102,6 +102,7 @@ impl OrderBuilder {
             price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
+            from_bot: true,
         }
     }
 }
@@ -119,6 +120,7 @@ pub struct Order {
     pub price: f64,
     pub filled_qty: f64,
     pub filled_price: f64,
+    pub from_bot: bool,
 }
 impl<'a> From<&BybitOrder<'a>> for Order {
     fn from(src: &BybitOrder) -> Self {
@@ -133,6 +135,7 @@ impl<'a> From<&BybitOrder<'a>> for Order {
             price: f64::from_str(src.price).unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
             filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
+            from_bot: false,
         }
     }
 }
