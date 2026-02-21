@@ -1,24 +1,24 @@
 use std::env;
 use std::sync::mpsc::Sender;
 
-use bybit::ws::response::PrivateResponse;
 use bybit::WebSocketApiClient;
+use bybit::ws::response::PrivateResponse;
 
 use crate::OrderMessages;
 
 #[derive(Debug)]
-pub struct OrderWebSocket {
+pub struct PrivateWebSocket {
     api_key: String,
     api_secret: String,
     to_oms: Sender<OrderMessages>,
 }
-impl OrderWebSocket {
+impl PrivateWebSocket {
     // Temporary while secrets handling hasn't been implemented
     pub fn new(to_oms: Sender<OrderMessages>) -> Self {
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
         let api_secret =
             env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");
-        OrderWebSocket {
+        PrivateWebSocket {
             to_oms,
             api_key,
             api_secret,

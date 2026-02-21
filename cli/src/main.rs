@@ -3,8 +3,8 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use exchange::bybit::book_ws::BookWebSocket;
-use exchange::bybit::order_ws::OrderWebSocket;
+use exchange::bybit::private_ws::PrivateWebSocket;
+use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
 use oms::OrderManagementSystem;
@@ -38,7 +38,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let book_ws_thread = thread::spawn(move || {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        let mut handler = BookWebSocket::default();
+        let mut handler = PublicWebSocket::default();
         handler.subscribe(&mut producer, &symbol);
     });
 
@@ -61,7 +61,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
         mpsc::channel();
     let order_to_oms_cloned = order_to_oms.clone();
     let order_ws_thread = thread::spawn(move || {
-        let handler = OrderWebSocket::new(order_to_oms);
+        let handler = PrivateWebSocket::new(order_to_oms);
         handler.subscribe();
     });
 
