@@ -51,12 +51,14 @@ pub struct OrderBook {
 pub enum OrderSide {
     Buy,
     Sell,
+    NotAvailable,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
+    NotAvailable,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
@@ -72,6 +74,8 @@ pub enum OrderStatus {
     Cancelled,
     Triggered,
     Deactivated,
+    //
+    NotAvailable,
 }
 impl OrderStatus {
     pub fn is_open(&self) -> bool {
@@ -103,6 +107,34 @@ impl OrderBuilder {
             filled_qty: 0.0,
             filled_price: f64::NAN,
             from_bot: true,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct OrderAmendedBuilder {
+    pub symbol: String,
+    pub order_id: String,
+    pub qty: f64,
+    pub price: String,
+    pub new_price: bool,
+    pub new_qty: bool,
+}
+impl OrderAmendedBuilder {
+    pub fn build(self) -> Order {
+        Order {
+            order_id: String::new(),
+            order_status: OrderStatus::NotAvailable,
+            symbol: self.symbol,
+            side: OrderSide::NotAvailable,
+            order_type: OrderType::NotAvailable,
+            qty: self.qty,
+            price: f64::from_str(self.price.as_str()).unwrap(),
+            filled_qty: 0.0,
+            filled_price: f64::NAN,
+            // Setting from_bot to false because it's an existing order. Simulate
+            // as if the update comes from the order WebSocket.
+            from_bot: false,
         }
     }
 }

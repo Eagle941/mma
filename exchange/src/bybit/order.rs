@@ -10,7 +10,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sha2::Sha256;
 
-use crate::{Order, OrderBuilder};
+use crate::{Order, OrderAmendedBuilder, OrderBuilder};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -68,6 +68,77 @@ impl OrderHandler {
             recv_window,
             session,
         }
+    }
+
+    pub fn amend_order(&self, order_builder: OrderAmendedBuilder) {
+        // TODO: identify more efficient methods than `serde`
+        // TODO: add support for all additional exchange non-mandatory parameters
+        let url = format!("{}/v5/order/create", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        // NOTE: always populate price and qty even if they don't change to allow the
+        // OMS to be synced up correctly.
+        let mut body = json!({
+            "category": "spot",
+            "symbol": order_builder.symbol,
+            "orderId": order_builder.order_id
+        });
+        if order_builder.new_qty {
+            body["qty"] = json!(order_builder.qty);
+        }
+        if order_builder.new_price {
+            body["price"] = json!(order_builder.price);
+        }
+        let signature = Self::generate_post_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window.to_string(),
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+        println!("Order Amended {:#?}", body);
+        // TODO: use non-blocking HTTP request and avoid creating a new thread.
+        // TODO: add orderLinkId for optimisations
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        thread::scope(|_| {
+            let res = self
+                .session
+                .post(url)
+                .header("X-BAPI-API-KEY", &self.api_key)
+                .header("X-BAPI-SIGN", signature)
+                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
+                .json(&body)
+                .unwrap()
+                .send();
+            match res {
+                Ok(x) => {
+                    if !x.is_success() {
+                        panic!("Failed order amend response. Status code {}", x.status());
+                    } else {
+                        let content = x.text().unwrap();
+                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
+                        if content.ret_code == 0 {
+                            let content: OrderResponse =
+                                serde_json::from_str(content.result.get()).unwrap();
+                            let mut order = order_builder.build();
+                            order.order_id = content.order_id.to_string();
+                            self.to_oms.send(order).unwrap();
+                        } else {
+                            panic!(
+                                "Failed order amend request. Code: {}. Msg: {}",
+                                content.ret_code, content.ret_msg
+                            );
+                        }
+                    }
+                }
+                Err(x) => {
+                    panic!("Failed to send order amend request {x}\n{body:#?}");
+                }
+            }
+        });
     }
 
     pub fn submit_order(&self, order_builder: OrderBuilder) {

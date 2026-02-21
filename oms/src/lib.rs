@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
 use exchange::bybit::order::OrderHandler;
-use exchange::{Order, OrderBuilder};
+use exchange::{Order, OrderBuilder, OrderStatus};
 
 use crate::risk::RiskManager;
 
@@ -57,9 +57,16 @@ impl OrderManagementSystem {
             // TODO: optimise insert or update logic.
             match self.active_orders.get_mut(&new_order.order_id) {
                 Some(old_order) => {
-                    old_order.order_status = new_order.order_status;
-                    old_order.filled_price = new_order.filled_price;
-                    old_order.filled_qty = new_order.filled_qty;
+                    if new_order.order_status == OrderStatus::NotAvailable {
+                        // This is an amended order.
+                        old_order.price = new_order.price;
+                        old_order.qty = new_order.price;
+                    } else {
+                        // This is an order update from the WebSocket
+                        old_order.order_status = new_order.order_status;
+                        old_order.filled_price = new_order.filled_price;
+                        old_order.filled_qty = new_order.filled_qty;
+                    }
                 }
                 None => {
                     // NOTE: `insert` returns an option, but we don't need the
