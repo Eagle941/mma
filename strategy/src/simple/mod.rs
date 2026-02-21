@@ -84,7 +84,7 @@ impl SimpleStrategy {
                 println!("Expected {profits:.*} USDT", decimal_digits);
 
                 // TODO: Optimise String cloning
-                // TODO: Make parallel order submission
+                // TODO: Make batch order submission
                 // TODO: Deal with channel send errors
                 let bid_order = OrderBuilder {
                     symbol: self.instrument_info.symbol.clone(),

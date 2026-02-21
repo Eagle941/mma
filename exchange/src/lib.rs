@@ -2,7 +2,7 @@ use std::f64;
 use std::fmt::{Display, Formatter, Result};
 use std::str::FromStr;
 
-use ::bybit::ws::response::{Order as BybitOrder, OrderbookItem};
+use ::bybit::ws::response::{Execution, Order as BybitOrder, OrderbookItem};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
@@ -86,6 +86,49 @@ impl OrderStatus {
     }
 }
 
+pub enum OrderMessages {
+    NewOrder(Order),
+    AmendedOrder(Order),    // TODO: change to its own struct
+    OrderUpdate(Order),     // TODO: change to its own struct
+    ExecutionUpdate(Order), // TODO: change to its own struct
+}
+impl<'a> From<&BybitOrder<'a>> for OrderMessages {
+    fn from(src: &BybitOrder) -> Self {
+        // TODO: this `try_into` is very dangerous. It needs to be improved.
+        let order = Order {
+            order_id: src.order_id.to_string(),
+            order_status: src.order_status.try_into().unwrap(),
+            symbol: src.symbol.to_string(),
+            side: src.side.try_into().unwrap(),
+            order_type: src.order_type.try_into().unwrap(),
+            qty: f64::from_str(src.qty).unwrap(),
+            price: f64::from_str(src.price).unwrap(),
+            filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
+            filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
+        };
+        OrderMessages::OrderUpdate(order)
+    }
+}
+impl<'a> From<&Execution<'a>> for OrderMessages {
+    fn from(src: &Execution) -> Self {
+        // TODO: this `try_into` is very dangerous. It needs to be improved.
+        let quantity = f64::from_str(src.order_qty).unwrap();
+        let order = Order {
+            order_id: src.order_id.to_string(),
+            order_status: OrderStatus::NotAvailable,
+            symbol: src.symbol.to_string(),
+            side: src.side.try_into().unwrap(),
+            order_type: src.order_type.try_into().unwrap(),
+            qty: quantity,
+            price: f64::from_str(src.order_price).unwrap(),
+            filled_qty: quantity - f64::from_str(src.leaves_qty).unwrap(),
+            // NOTE: exec_price may not match average price of the whole order.
+            filled_price: f64::from_str(src.exec_price).unwrap_or(f64::NAN),
+        };
+        OrderMessages::ExecutionUpdate(order)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderBuilder {
     pub symbol: String,
@@ -95,9 +138,10 @@ pub struct OrderBuilder {
     pub price: String,
 }
 impl OrderBuilder {
-    pub fn build(self) -> Order {
-        Order {
-            order_id: String::new(),
+    // TODO: should it be converted to an Into trait of `OrderMessages`?
+    pub fn build(self, order_id: String) -> OrderMessages {
+        let order = Order {
+            order_id,
             order_status: OrderStatus::New,
             symbol: self.symbol,
             side: self.side,
@@ -106,8 +150,8 @@ impl OrderBuilder {
             price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
-            from_bot: true,
-        }
+        };
+        OrderMessages::NewOrder(order)
     }
 }
 
@@ -121,9 +165,10 @@ pub struct OrderAmendedBuilder {
     pub new_qty: bool,
 }
 impl OrderAmendedBuilder {
-    pub fn build(self) -> Order {
-        Order {
-            order_id: String::new(),
+    // TODO: should it be converted to an Into trait of `OrderMessages`?
+    pub fn build(self, order_id: String) -> OrderMessages {
+        let order = Order {
+            order_id,
             order_status: OrderStatus::NotAvailable,
             symbol: self.symbol,
             side: OrderSide::NotAvailable,
@@ -132,10 +177,8 @@ impl OrderAmendedBuilder {
             price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
-            // Setting from_bot to false because it's an existing order. Simulate
-            // as if the update comes from the order WebSocket.
-            from_bot: false,
-        }
+        };
+        OrderMessages::AmendedOrder(order)
     }
 }
 
@@ -152,22 +195,4 @@ pub struct Order {
     pub price: f64,
     pub filled_qty: f64,
     pub filled_price: f64,
-    pub from_bot: bool,
-}
-impl<'a> From<&BybitOrder<'a>> for Order {
-    fn from(src: &BybitOrder) -> Self {
-        // TODO: this `try_into` is very dangerous. It needs to be improved.
-        Order {
-            order_id: src.order_id.to_string(),
-            order_status: src.order_status.try_into().unwrap(),
-            symbol: src.symbol.to_string(),
-            side: src.side.try_into().unwrap(),
-            order_type: src.order_type.try_into().unwrap(),
-            qty: f64::from_str(src.qty).unwrap(),
-            price: f64::from_str(src.price).unwrap(),
-            filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
-            filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
-            from_bot: false,
-        }
-    }
 }

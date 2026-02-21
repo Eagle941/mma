@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
 use exchange::bybit::order::OrderHandler;
-use exchange::{Order, OrderBuilder, OrderStatus};
+use exchange::{Order, OrderBuilder, OrderMessages};
 
 use crate::risk::RiskManager;
 
@@ -11,7 +11,7 @@ pub mod risk;
 #[derive(Debug)]
 pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
-    from_order_handler: Receiver<Order>,
+    from_order_handler: Receiver<OrderMessages>,
     order_handler: OrderHandler,
     // TODO: add internal order_id instead of using the one supplied by the
     // exchange.
@@ -20,8 +20,8 @@ pub struct OrderManagementSystem {
 impl OrderManagementSystem {
     pub fn new(
         from_strategy: Receiver<OrderBuilder>,
-        from_order_handler: Receiver<Order>,
-        to_oms: Sender<Order>,
+        from_order_handler: Receiver<OrderMessages>,
+        to_oms: Sender<OrderMessages>,
     ) -> OrderManagementSystem {
         OrderManagementSystem {
             from_strategy,
@@ -55,29 +55,29 @@ impl OrderManagementSystem {
     pub fn order_response(&mut self) {
         while let Ok(new_order) = self.from_order_handler.try_recv() {
             // TODO: optimise insert or update logic.
-            match self.active_orders.get_mut(&new_order.order_id) {
-                Some(old_order) => {
-                    if new_order.order_status == OrderStatus::NotAvailable {
-                        // This is an amended order.
-                        old_order.price = new_order.price;
-                        old_order.qty = new_order.price;
-                    } else {
-                        // This is an order update from the WebSocket
-                        old_order.order_status = new_order.order_status;
-                        old_order.filled_price = new_order.filled_price;
-                        old_order.filled_qty = new_order.filled_qty;
-                    }
+            match new_order {
+                OrderMessages::NewOrder(order) => {
+                    // NOTE: skipping check if the order_id exists already!
+                    self.active_orders.insert(order.order_id.clone(), order);
                 }
-                None => {
-                    // NOTE: `insert` returns an option, but we don't need the
-                    // result, therefore `unwrap()` isn't called.
-                    // NOTE: `from_bot` is set true only when the order is
-                    // generated from the bot. This is to differentiate from
-                    // orders generated from the UI.
-                    if new_order.from_bot {
-                        self.active_orders
-                            .insert(new_order.order_id.clone(), new_order);
-                    }
+                OrderMessages::AmendedOrder(order) => {
+                    // NOTE: assuming order exists already!
+                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    old_order.price = order.price;
+                    old_order.qty = order.qty;
+                }
+                OrderMessages::OrderUpdate(order) => {
+                    // NOTE: assuming order exists already!
+                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    old_order.order_status = order.order_status;
+                    old_order.filled_price = order.filled_price;
+                    old_order.filled_qty = order.filled_qty;
+                }
+                OrderMessages::ExecutionUpdate(order) => {
+                    // NOTE: assuming order exists already!
+                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    old_order.filled_price = order.filled_price;
+                    old_order.filled_qty = order.filled_qty;
                 }
             };
         }

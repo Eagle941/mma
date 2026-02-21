@@ -10,7 +10,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sha2::Sha256;
 
-use crate::{Order, OrderAmendedBuilder, OrderBuilder};
+use crate::{OrderAmendedBuilder, OrderBuilder, OrderMessages};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -40,12 +40,12 @@ pub struct OrderHandler {
     api_secret: String,
     recv_window: u32,
     session: Session,
-    to_oms: Sender<Order>,
+    to_oms: Sender<OrderMessages>,
 }
 impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
-    pub fn new(to_oms: Sender<Order>) -> Self {
+    pub fn new(to_oms: Sender<OrderMessages>) -> Self {
         // TODO: add option to switch between testnet and production.
         let base_url = "https://api-testnet.bybit.com".to_string();
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
@@ -123,8 +123,7 @@ impl OrderHandler {
                         if content.ret_code == 0 {
                             let content: OrderResponse =
                                 serde_json::from_str(content.result.get()).unwrap();
-                            let mut order = order_builder.build();
-                            order.order_id = content.order_id.to_string();
+                            let order = order_builder.build(content.order_id.to_string());
                             self.to_oms.send(order).unwrap();
                         } else {
                             panic!(
@@ -191,8 +190,7 @@ impl OrderHandler {
                         if content.ret_code == 0 {
                             let content: OrderResponse =
                                 serde_json::from_str(content.result.get()).unwrap();
-                            let mut order = order_builder.build();
-                            order.order_id = content.order_id.to_string();
+                            let order = order_builder.build(content.order_id.to_string());
                             self.to_oms.send(order).unwrap();
                         } else {
                             panic!(

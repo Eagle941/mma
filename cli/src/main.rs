@@ -5,7 +5,7 @@ use std::{env, process, thread};
 use clap::Parser;
 use exchange::bybit::book_ws::BookWebSocket;
 use exchange::bybit::order_ws::OrderWebSocket;
-use exchange::{Order, OrderBook, OrderBuilder};
+use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
 use oms::OrderManagementSystem;
 use strategy::simple::SimpleStrategy;
@@ -57,7 +57,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
         }
     });
 
-    let (order_to_oms, from_order_handler): (Sender<Order>, Receiver<Order>) = mpsc::channel();
+    let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
+        mpsc::channel();
     let order_to_oms_cloned = order_to_oms.clone();
     let order_ws_thread = thread::spawn(move || {
         let handler = OrderWebSocket::new(order_to_oms);
