@@ -62,20 +62,32 @@ impl OrderManagementSystem {
                 }
                 OrderMessages::AmendedOrder(order) => {
                     // NOTE: assuming order exists already!
-                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
+                        // NOTE: this is to prevent manual orders on the UI to
+                        // affect the logic of the bot.
+                        continue;
+                    };
                     old_order.price = order.price;
                     old_order.qty = order.qty;
                 }
                 OrderMessages::OrderUpdate(order) => {
                     // NOTE: assuming order exists already!
-                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
+                        // NOTE: this is to prevent manual orders on the UI to
+                        // affect the logic of the bot.
+                        continue;
+                    };
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                 }
                 OrderMessages::ExecutionUpdate(order) => {
                     // NOTE: assuming order exists already!
-                    let old_order = self.active_orders.get_mut(&order.order_id).unwrap();
+                    let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
+                        // NOTE: this is to prevent manual orders on the UI to
+                        // affect the logic of the bot.
+                        continue;
+                    };
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                 }
