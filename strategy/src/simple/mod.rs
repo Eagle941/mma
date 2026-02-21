@@ -33,6 +33,19 @@ impl SimpleStrategy {
         SimpleStrategy::new(oms_channel, size, symbol.as_str())
     }
 
+    fn calculate_profits(&self, bid_price: f64, bid_qty: f64, ask_price: f64, ask_qty: f64) -> f64 {
+        const MAKER_FEE: f64 = 0.0676; // %
+        const BORROW_FEE_HOURLY: f64 = 0.00060432; // %
+
+        let gross_profit = ask_qty * ask_price - bid_qty * bid_price;
+        let buy_fees = (bid_qty * bid_price) * (MAKER_FEE / 100.0);
+        let sell_fees = (ask_qty * ask_price) * (MAKER_FEE / 100.0);
+        // NOTE: assuming I need to borrow ADA to make a sell order and I pay borrowing
+        // fees for 5 hours.
+        let borrow_fees = (ask_qty * ask_price) * (BORROW_FEE_HOURLY * 5.0 / 100.0);
+        gross_profit - buy_fees - sell_fees - borrow_fees
+    }
+
     pub fn execute(&self, order_book: &OrderBook) {
         if !order_book.bids.is_empty() && !order_book.asks.is_empty() {
             let first_bid = order_book.bids.first().unwrap();
@@ -66,6 +79,9 @@ impl SimpleStrategy {
             {
                 let bid_price = first_bid.price - (precision * 2.0);
                 let ask_price = first_ask.price + (precision * 2.0);
+
+                let profits = self.calculate_profits(bid_price, self.size, ask_price, self.size);
+                println!("Expected {profits:.*} USDT", decimal_digits);
 
                 // TODO: Optimise String cloning
                 // TODO: Make parallel order submission
