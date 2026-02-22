@@ -66,6 +66,7 @@ impl OrderManagementSystem {
             match new_order {
                 OrderMessages::NewOrder(order) => {
                     // NOTE: skipping check if the order_id exists already!
+                    println!("New order {order:#?}");
                     self.active_orders.insert(order.order_id.clone(), order);
                 }
                 OrderMessages::AmendedOrder(order) => {
@@ -85,6 +86,11 @@ impl OrderManagementSystem {
                         // affect the logic of the bot.
                         continue;
                     };
+
+                    println!(
+                        "Updated order {} {:?} {:.3} {:.0}",
+                        order.order_id, order.order_status, order.filled_price, order.filled_qty
+                    );
 
                     // NOTE: The inventory is updated before and after the order change. This is
                     // because filled quantity is not cumulative, therefore we
@@ -119,6 +125,11 @@ impl OrderManagementSystem {
                         // affect the logic of the bot.
                         continue;
                     };
+
+                    println!(
+                        "Execution order {} {:.3} {:.0}",
+                        order.order_id, order.filled_price, order.filled_qty
+                    );
 
                     // NOTE: The inventory is updated before and after the order change. This is
                     // because filled quantity is not cumulative, therefore we

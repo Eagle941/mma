@@ -49,28 +49,28 @@ impl SimpleStrategy {
     pub fn execute(&self, order_book: &OrderBook) {
         if !order_book.bids.is_empty() && !order_book.asks.is_empty() {
             let first_bid = order_book.bids.first().unwrap();
-            let last_bid = order_book.bids.last().unwrap();
+            // let last_bid = order_book.bids.last().unwrap();
             let first_ask = order_book.asks.first().unwrap();
-            let last_ask = order_book.asks.last().unwrap();
+            // let last_ask = order_book.asks.last().unwrap();
 
             let decimal_digits = self.instrument_info.decimal_places;
-            println!(
-                "B {:.*} {:.*} | A {:.*} {:.*} | S {:.*}",
-                decimal_digits,
-                last_bid.price,
-                decimal_digits,
-                first_bid.price,
-                decimal_digits,
-                first_ask.price,
-                decimal_digits,
-                last_ask.price,
-                decimal_digits,
-                if first_bid.price != 0.0 && first_ask.price != 0.0 {
-                    first_ask.price - first_bid.price
-                } else {
-                    0.0
-                }
-            );
+            // println!(
+            //     "B {:.*} {:.*} | A {:.*} {:.*} | S {:.*}",
+            //     decimal_digits,
+            //     last_bid.price,
+            //     decimal_digits,
+            //     first_bid.price,
+            //     decimal_digits,
+            //     first_ask.price,
+            //     decimal_digits,
+            //     last_ask.price,
+            //     decimal_digits,
+            //     if first_bid.price != 0.0 && first_ask.price != 0.0 {
+            //         first_ask.price - first_bid.price
+            //     } else {
+            //         0.0
+            //     }
+            // );
 
             let precision = self.instrument_info.tick_size;
 
