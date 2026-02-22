@@ -32,8 +32,8 @@ impl PrivateWebSocket {
             .build_with_credentials(&self.api_key, &self.api_secret);
         client.subscribe_order();
         client.subscribe_execution();
-        client.subscribe_wallet();
 
+        // TODO: Add subscription to Wallet stream.
         let callback = |res: PrivateResponse| match res {
             PrivateResponse::Order(res) => {
                 let data = res.data;
@@ -46,10 +46,6 @@ impl PrivateWebSocket {
                 for order in data {
                     self.to_oms.send((&order).into()).unwrap();
                 }
-            }
-            PrivateResponse::Wallet(res) => {
-                let data = res.data;
-                println!("{data:#?}");
             }
             PrivateResponse::Op(res) => {
                 if !res.success {
