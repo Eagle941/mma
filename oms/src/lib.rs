@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
 use exchange::bybit::order::OrderHandler;
-use exchange::{Order, OrderBuilder, OrderMessages};
+use exchange::{Order, OrderBuilder, OrderMessages, OrderSide};
 
 use crate::risk::RiskManager;
 
@@ -17,6 +17,11 @@ pub struct OrderManagementSystem {
     // exchange.
     active_orders: HashMap<String, Order>,
     past_orders: HashMap<String, Order>,
+    // NOTE: at the moment it supports only one pair (ADAUSDT)
+    // +ve --> purchased ADA coins
+    // -ve --> sold ADA coins
+    // A value of 0 shows no exposure to the market i.e. all positions closed.
+    inventory: f64,
 }
 impl OrderManagementSystem {
     pub fn new(
@@ -30,6 +35,7 @@ impl OrderManagementSystem {
             order_handler: OrderHandler::new(to_oms),
             active_orders: HashMap::new(),
             past_orders: HashMap::new(),
+            inventory: 0.0,
         }
     }
 
@@ -79,9 +85,26 @@ impl OrderManagementSystem {
                         // affect the logic of the bot.
                         continue;
                     };
+
+                    // NOTE: The inventory is updated before and after the order change. This is
+                    // because filled quantity is not cumulative, therefore we
+                    // don't want to double count the inventory.
+                    match old_order.side {
+                        OrderSide::Buy => self.inventory -= old_order.filled_qty,
+                        OrderSide::Sell => self.inventory += old_order.filled_qty,
+                        _ => (),
+                    };
+
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
+
+                    match old_order.side {
+                        OrderSide::Buy => self.inventory += old_order.filled_qty,
+                        OrderSide::Sell => self.inventory -= old_order.filled_qty,
+                        _ => (),
+                    };
+
                     if order.order_status.is_closed() {
                         self.past_orders.insert(
                             order.order_id.clone(),
@@ -96,10 +119,28 @@ impl OrderManagementSystem {
                         // affect the logic of the bot.
                         continue;
                     };
+
+                    // NOTE: The inventory is updated before and after the order change. This is
+                    // because filled quantity is not cumulative, therefore we
+                    // don't want to double count the inventory.
+                    match old_order.side {
+                        OrderSide::Buy => self.inventory -= old_order.filled_qty,
+                        OrderSide::Sell => self.inventory += old_order.filled_qty,
+                        _ => (),
+                    };
+
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
+
+                    match old_order.side {
+                        OrderSide::Buy => self.inventory += old_order.filled_qty,
+                        OrderSide::Sell => self.inventory -= old_order.filled_qty,
+                        _ => (),
+                    };
                 }
             };
+
+            println!("Inventory {:.3} ADA", self.inventory);
         }
     }
 }
