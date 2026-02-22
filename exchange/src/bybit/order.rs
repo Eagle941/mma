@@ -125,13 +125,6 @@ impl OrderHandler {
                                 serde_json::from_str(content.result.get()).unwrap();
                             let order = order_builder.build(content.order_id.to_string());
                             self.to_oms.send(order).unwrap();
-                        } else if content.ret_code == 1002 {
-                            // Timestamp for this request is outside of the
-                            // recvWindow.
-                            // NOTE: if the order request took too long to arrive, just skip the
-                            // order and let the strategy send a new one in the next cycle with
-                            // updated values.
-                            return;
                         } else {
                             panic!(
                                 "Failed order amend request. Code: {}. Msg: {}",
@@ -199,6 +192,17 @@ impl OrderHandler {
                                 serde_json::from_str(content.result.get()).unwrap();
                             let order = order_builder.build(content.order_id.to_string());
                             self.to_oms.send(order).unwrap();
+                        } else if content.ret_code == 1002 || content.ret_code == 170194 {
+                            // Timestamp for this request is outside of the
+                            // recvWindow.
+                            // NOTE: if the order request took too long to arrive, just skip the
+                            // order and let the strategy send a new one in the next cycle with
+                            // updated values.
+                            // Sell order price cannot be lower than %s.
+                            // NOTE: This error occurs when order book changed while submitting the
+                            // order. Wait for the next cycle to submit another order at a different
+                            // price.
+                            return;
                         } else {
                             panic!(
                                 "Failed order request. Code: {}. Msg: {}",

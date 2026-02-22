@@ -78,8 +78,9 @@ impl SimpleStrategy {
             let bid_price = mid_price - precision * 2.0;
             let ask_price = mid_price + precision * 2.0;
 
-            let profits = self.calculate_profits(bid_price, self.size, ask_price, self.size);
-            println!("Expected {profits:.*} USDT", decimal_digits);
+            // let profits = self.calculate_profits(bid_price, self.size, ask_price,
+            // self.size); println!("Expected {profits:.*} USDT",
+            // decimal_digits);
 
             // TODO: Optimise String cloning
             // TODO: Make batch order submission
