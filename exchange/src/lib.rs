@@ -84,6 +84,10 @@ impl OrderStatus {
             _ => false,
         }
     }
+
+    pub fn is_closed(&self) -> bool {
+        !self.is_open()
+    }
 }
 
 pub enum OrderMessages {

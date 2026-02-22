@@ -16,6 +16,7 @@ pub struct OrderManagementSystem {
     // TODO: add internal order_id instead of using the one supplied by the
     // exchange.
     active_orders: HashMap<String, Order>,
+    past_orders: HashMap<String, Order>,
 }
 impl OrderManagementSystem {
     pub fn new(
@@ -28,6 +29,7 @@ impl OrderManagementSystem {
             from_order_handler,
             order_handler: OrderHandler::new(to_oms),
             active_orders: HashMap::new(),
+            past_orders: HashMap::new(),
         }
     }
 
@@ -80,6 +82,12 @@ impl OrderManagementSystem {
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
+                    if order.order_status.is_closed() {
+                        self.past_orders.insert(
+                            order.order_id.clone(),
+                            self.active_orders.remove(&order.order_id).unwrap(),
+                        );
+                    }
                 }
                 OrderMessages::ExecutionUpdate(order) => {
                     // NOTE: assuming order exists already!
