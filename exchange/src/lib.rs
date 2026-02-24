@@ -92,9 +92,9 @@ impl OrderStatus {
 
 pub enum OrderMessages {
     NewOrder(Order),
-    AmendedOrder(Order),    // TODO: change to its own struct
-    OrderUpdate(Order),     // TODO: change to its own struct
-    ExecutionUpdate(Order), // TODO: change to its own struct
+    AmendedOrder(Order),             // TODO: change to its own struct
+    OrderUpdate(Order),              // TODO: change to its own struct
+    ExecutionUpdate(OrderExecution), // TODO: change to its own struct
 }
 impl<'a> From<&BybitOrder<'a>> for OrderMessages {
     fn from(src: &BybitOrder) -> Self {
@@ -116,20 +116,11 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
 }
 impl<'a> From<&Execution<'a>> for OrderMessages {
     fn from(src: &Execution) -> Self {
-        // TODO: this `try_into` is very dangerous. It needs to be improved.
-        let quantity = f64::from_str(src.order_qty).unwrap();
-        let order = Order {
+        let order = OrderExecution {
             order_id: src.order_id.to_string(),
-            order_status: OrderStatus::NotAvailable,
-            symbol: src.symbol.to_string(),
-            side: src.side.try_into().unwrap(),
-            order_type: src.order_type.try_into().unwrap(),
-            qty: quantity,
-            price: f64::from_str(src.order_price).unwrap(),
-            filled_qty: quantity - f64::from_str(src.leaves_qty).unwrap(),
-            // NOTE: exec_price may not match average price of the whole order.
-            filled_price: f64::from_str(src.exec_price).unwrap_or(f64::NAN),
-            updated_time: 0,
+            qty: f64::from_str(src.exec_qty).unwrap(),
+            price: f64::from_str(src.exec_price).unwrap(),
+            remaining_qty: f64::from_str(src.leaves_qty).unwrap(),
         };
         OrderMessages::ExecutionUpdate(order)
     }
@@ -202,6 +193,17 @@ pub struct Order {
     pub qty: f64,
     pub price: f64,
     pub filled_qty: f64,
+    // NOTE: this is the average price of the order execution
     pub filled_price: f64,
     pub updated_time: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct OrderExecution {
+    pub order_id: String,
+    // NOTE: price is the execution price
+    pub price: f64,
+    // NOTEL qty is the size of the execution
+    pub qty: f64,
+    pub remaining_qty: f64,
 }

@@ -41,6 +41,8 @@ impl RiskManager {
         last_buy: Option<&Order>,
         last_sell: Option<&Order>,
     ) -> Outcome {
+        // NOTE: could be dynamic
+        const MAKER_FEE: f64 = 0.0676; // %
         const MAX_INVENTORY: f64 = 500.0;
         const MIN_INVENTORY: f64 = -500.0;
 
@@ -80,7 +82,7 @@ impl RiskManager {
                 let Some(last_sell) = last_sell else {
                     return Outcome::AmendOrder(amended_order);
                 };
-                if new_order_price >= last_sell.filled_price {
+                if new_order_price >= last_sell.filled_price * (MAKER_FEE * 2.0 / 100.0) {
                     return Outcome::Nothing;
                 }
             }
@@ -88,7 +90,7 @@ impl RiskManager {
                 let Some(last_buy) = last_buy else {
                     return Outcome::AmendOrder(amended_order);
                 };
-                if new_order_price <= last_buy.filled_price {
+                if new_order_price <= last_buy.filled_price * (MAKER_FEE * 2.0 / 100.0) {
                     return Outcome::Nothing;
                 }
             }

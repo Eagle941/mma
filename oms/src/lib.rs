@@ -104,25 +104,10 @@ impl OrderManagementSystem {
                         order.order_id, order.order_status, order.filled_price, order.filled_qty
                     );
 
-                    // NOTE: The inventory is updated before and after the order change. This is
-                    // because filled quantity is not cumulative, therefore we
-                    // don't want to double count the inventory.
-                    match old_order.side {
-                        OrderSide::Buy => self.inventory -= old_order.filled_qty,
-                        OrderSide::Sell => self.inventory += old_order.filled_qty,
-                        _ => (),
-                    };
-
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                     old_order.updated_time = order.updated_time;
-
-                    match old_order.side {
-                        OrderSide::Buy => self.inventory += old_order.filled_qty,
-                        OrderSide::Sell => self.inventory -= old_order.filled_qty,
-                        _ => (),
-                    };
 
                     if order.order_status.is_closed() {
                         let order = self.active_orders.remove(&order.order_id).unwrap();
@@ -147,30 +132,18 @@ impl OrderManagementSystem {
 
                     println!(
                         "Execution order {} {:.3} {:.0}",
-                        order.order_id, order.filled_price, order.filled_qty
+                        order.order_id, order.price, order.qty
                     );
 
-                    // NOTE: The inventory is updated before and after the order change. This is
-                    // because filled quantity is not cumulative, therefore we
-                    // don't want to double count the inventory.
                     match old_order.side {
-                        OrderSide::Buy => self.inventory -= old_order.filled_qty,
-                        OrderSide::Sell => self.inventory += old_order.filled_qty,
-                        _ => (),
-                    };
-
-                    old_order.filled_price = order.filled_price;
-                    old_order.filled_qty = order.filled_qty;
-
-                    match old_order.side {
-                        OrderSide::Buy => self.inventory += old_order.filled_qty,
-                        OrderSide::Sell => self.inventory -= old_order.filled_qty,
+                        OrderSide::Buy => self.inventory += order.qty,
+                        OrderSide::Sell => self.inventory -= order.qty,
                         _ => (),
                     };
                 }
             };
 
-            println!("Inventory {:.3} ADA", self.inventory);
+            println!("Inventory {:.3}", self.inventory);
         }
     }
 }
