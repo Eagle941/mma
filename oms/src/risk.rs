@@ -48,6 +48,9 @@ impl RiskManager {
             new_price: f64::from_str(new_order.price.as_str()).unwrap() != existing_order.price,
             new_qty: new_order.qty != existing_order.qty,
         };
+        if !amended_order.new_price && !amended_order.new_qty {
+            return Outcome::Nothing;
+        }
         return Outcome::AmendOrder(amended_order);
     }
 }
