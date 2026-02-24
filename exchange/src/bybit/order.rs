@@ -129,6 +129,7 @@ impl OrderHandler {
                             || content.ret_code == 170194
                             || content.ret_code == 170193
                             || content.ret_code == 10001
+                            || content.ret_code == 170213
                         {
                             // Timestamp for this request is outside of the
                             // recvWindow.
@@ -141,9 +142,13 @@ impl OrderHandler {
                             // order. Wait for the next cycle to submit another order at a different
                             // price.
                             // The order remains unchanged as the parameters entered match the
-                            // existing ones. NOTE: This error occurs
+                            // existing ones.
+                            // NOTE: This error occurs
                             // when two identical amend orders are issued at the same time due to
                             // the latency to receive the HTTP response.
+                            // Order does not exist.
+                            // NOTE: This error occurs when an order is filled during the amend
+                            // request.
                             return;
                         } else {
                             panic!(
