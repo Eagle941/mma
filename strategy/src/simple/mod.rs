@@ -75,10 +75,10 @@ impl SimpleStrategy {
         //     }
         // );
 
-        let precision = self.instrument_info.tick_size;
+        // let precision = self.instrument_info.tick_size;
         let mid_price = (first_bid.price + first_ask.price) / 2.0;
-        let bid_price = mid_price - precision * 2.0;
-        let ask_price = mid_price + precision * 2.0;
+        let bid_price = mid_price - 0.02;
+        let ask_price = mid_price + 0.02;
 
         // let profits = self.calculate_profits(bid_price, self.size, ask_price,
         // self.size); println!("Expected {profits:.*} USDT",
