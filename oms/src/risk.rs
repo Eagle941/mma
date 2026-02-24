@@ -82,7 +82,7 @@ impl RiskManager {
                 let Some(last_sell) = last_sell else {
                     return Outcome::AmendOrder(amended_order);
                 };
-                if new_order_price >= last_sell.filled_price * (MAKER_FEE * 2.0 / 100.0 + 1.0) {
+                if new_order_price >= -last_sell.filled_price * (MAKER_FEE * 2.0 / 100.0 - 1.0) {
                     return Outcome::Nothing;
                 }
             }
