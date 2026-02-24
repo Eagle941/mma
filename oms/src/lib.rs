@@ -78,6 +78,16 @@ impl OrderManagementSystem {
             match new_order {
                 OrderMessages::NewOrder(order) => {
                     // NOTE: skipping check if the order_id exists already!
+                    if let Some(old_order) = self.active_orders.get_mut(&order.order_id) {
+                        // NOTE: this happens if an order if filled before it is added to the list
+                        // of orders.
+                        old_order.symbol = order.symbol;
+                        old_order.side = order.side;
+                        old_order.order_type = order.order_type;
+                        old_order.qty = order.qty;
+                        old_order.price = order.price;
+                        return;
+                    }
                     println!("New order {order:#?}");
                     self.active_orders.insert(order.order_id.clone(), order);
                 }
@@ -94,10 +104,27 @@ impl OrderManagementSystem {
                 }
                 OrderMessages::OrderUpdate(order) => {
                     // NOTE: assuming order exists already!
+                    match self.active_orders.get_mut(&order.order_id) {
+                        Some(_) => (),
+                        None => {
+                            // NOTE: this is to prevent manual orders on the UI to
+                            // affect the logic of the bot.
+
+                            // NOTE: the order update can arrive faster than a new order is
+                            // inserted.
+                            println!("DISCARDED updated order {}", &order.order_id);
+                            if order.order_status == OrderStatus::Filled {
+                                match order.side {
+                                    OrderSide::Buy => self.inventory += order.filled_qty,
+                                    OrderSide::Sell => self.inventory -= order.filled_qty,
+                                    _ => (),
+                                };
+                            }
+                            self.active_orders
+                                .insert(order.order_id.clone(), order.clone());
+                        }
+                    };
                     let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
-                        // NOTE: this is to prevent manual orders on the UI to
-                        // affect the logic of the bot.
-                        println!("DISCARDED updated order {}", &order.order_id);
                         continue;
                     };
 
@@ -112,7 +139,7 @@ impl OrderManagementSystem {
                     old_order.updated_time = order.updated_time;
 
                     if order.order_status.is_closed() {
-                        let order = self.active_orders.remove(&order.order_id).unwrap();
+                        let order = self.active_orders.remove("uiuiu").unwrap();
                         if order.order_status == OrderStatus::Filled {
                             match order.side {
                                 OrderSide::Buy => self.last_fill_buy = Some(order.clone()),
