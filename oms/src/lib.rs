@@ -50,8 +50,10 @@ impl OrderManagementSystem {
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&self) {
         while let Ok(order_builder) = self.from_strategy.try_recv() {
-            if RiskManager::submit_order(&self.active_orders, &order_builder) {
-                self.order_handler.submit_order(order_builder);
+            match RiskManager::submit_order(&self.active_orders, order_builder, self.inventory) {
+                risk::Outcome::NewOrder(order) => self.order_handler.submit_order(order),
+                risk::Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
+                risk::Outcome::Nothing => (),
             }
         }
     }
