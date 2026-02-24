@@ -13,31 +13,33 @@ pub enum Outcome {
 pub struct RiskManager();
 impl RiskManager {
     fn get_existing_order(
-        orders_history: &HashMap<String, Order>,
+        orders: &HashMap<String, Order>,
         side: OrderSide,
     ) -> Option<(&String, &Order)> {
-        orders_history
+        orders
             .iter()
             .filter(|(_, o)| o.order_status.is_open() && side == o.side)
             .next()
     }
 
-    fn get_opposite_order(
-        orders_history: &HashMap<String, Order>,
-        side: OrderSide,
-    ) -> Option<(&String, &Order)> {
-        orders_history
-            .iter()
-            .filter(|(_, o)| {
-                o.order_status.is_open() && side != o.side && OrderSide::NotAvailable != o.side
-            })
-            .next()
-    }
+    // fn get_opposite_order(
+    //     orders: &HashMap<String, Order>,
+    //     side: OrderSide,
+    // ) -> Option<(&String, &Order)> {
+    //     orders
+    //         .iter()
+    //         .filter(|(_, o)| {
+    //             o.order_status.is_open() && side != o.side &&
+    // OrderSide::NotAvailable != o.side         })
+    //         .next()
+    // }
 
     pub fn submit_order(
-        orders_history: &HashMap<String, Order>,
+        orders: &HashMap<String, Order>,
         new_order: OrderBuilder,
         inventory: f64,
+        last_buy: Option<&Order>,
+        last_sell: Option<&Order>,
     ) -> Outcome {
         const MAX_INVENTORY: f64 = 3000.0;
         const MIN_INVENTORY: f64 = -1800.0;
@@ -53,8 +55,7 @@ impl RiskManager {
         // This is a very simple risk management. Don't have more than two orders
         // running at the same time.
         // NOTE: Assumption is that there is only one active order per side at a time!
-        let Some((_, existing_order)) =
-            RiskManager::get_existing_order(orders_history, new_order.side)
+        let Some((_, existing_order)) = RiskManager::get_existing_order(orders, new_order.side)
         else {
             return Outcome::NewOrder(new_order);
         };
@@ -69,34 +70,30 @@ impl RiskManager {
             new_price: new_order_price != existing_order.price,
             new_qty: new_order.qty != existing_order.qty,
         };
+
         if !amended_order.new_price && !amended_order.new_qty {
             return Outcome::Nothing;
         }
 
-        let Some((_, opposite_order)) =
-            RiskManager::get_opposite_order(orders_history, new_order.side)
-        else {
-            return Outcome::AmendOrder(amended_order);
-        };
-
-        if !amended_order.new_price {
-            return Outcome::AmendOrder(amended_order);
-        }
-
         match new_order.side {
             OrderSide::Buy => {
-                if new_order_price >= opposite_order.price {
+                let Some(last_sell) = last_sell else {
+                    return Outcome::AmendOrder(amended_order);
+                };
+                if new_order_price >= last_sell.filled_price {
                     return Outcome::Nothing;
                 }
-                return Outcome::AmendOrder(amended_order);
             }
             OrderSide::Sell => {
-                if new_order_price <= opposite_order.price {
+                let Some(last_buy) = last_buy else {
+                    return Outcome::AmendOrder(amended_order);
+                };
+                if new_order_price <= last_buy.filled_price {
                     return Outcome::Nothing;
                 }
-                return Outcome::AmendOrder(amended_order);
             }
-            OrderSide::NotAvailable => return Outcome::AmendOrder(amended_order),
+            OrderSide::NotAvailable => return Outcome::Nothing,
         };
+        return Outcome::AmendOrder(amended_order);
     }
 }

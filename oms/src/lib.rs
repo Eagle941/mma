@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};
 
 use exchange::bybit::order::OrderHandler;
-use exchange::{Order, OrderBuilder, OrderMessages, OrderSide};
+use exchange::{Order, OrderBuilder, OrderMessages, OrderSide, OrderStatus};
 
 use crate::risk::RiskManager;
 
@@ -22,6 +22,8 @@ pub struct OrderManagementSystem {
     // -ve --> sold ADA coins
     // A value of 0 shows no exposure to the market i.e. all positions closed.
     inventory: f64,
+    last_fill_buy: Option<Order>,
+    last_fill_sell: Option<Order>,
 }
 impl OrderManagementSystem {
     pub fn new(
@@ -36,6 +38,8 @@ impl OrderManagementSystem {
             active_orders: HashMap::new(),
             past_orders: HashMap::new(),
             inventory: 0.0,
+            last_fill_buy: None,
+            last_fill_sell: None,
         }
     }
 
@@ -50,7 +54,13 @@ impl OrderManagementSystem {
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&self) {
         while let Ok(order_builder) = self.from_strategy.try_recv() {
-            match RiskManager::submit_order(&self.active_orders, order_builder, self.inventory) {
+            match RiskManager::submit_order(
+                &self.active_orders,
+                order_builder,
+                self.inventory,
+                self.last_fill_buy.as_ref(),
+                self.last_fill_sell.as_ref(),
+            ) {
                 risk::Outcome::NewOrder(order) => self.order_handler.submit_order(order),
                 risk::Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
                 risk::Outcome::Nothing => (),
@@ -106,6 +116,7 @@ impl OrderManagementSystem {
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
+                    old_order.updated_time = order.updated_time;
 
                     match old_order.side {
                         OrderSide::Buy => self.inventory += old_order.filled_qty,
@@ -114,10 +125,16 @@ impl OrderManagementSystem {
                     };
 
                     if order.order_status.is_closed() {
-                        self.past_orders.insert(
-                            order.order_id.clone(),
-                            self.active_orders.remove(&order.order_id).unwrap(),
-                        );
+                        let order = self.active_orders.remove(&order.order_id).unwrap();
+                        if order.order_status == OrderStatus::Filled {
+                            match order.side {
+                                OrderSide::Buy => self.last_fill_buy = Some(order.clone()),
+                                OrderSide::Sell => self.last_fill_sell = Some(order.clone()),
+                                OrderSide::NotAvailable => (),
+                            }
+                        }
+                        // NOTE: `past_orders` may not be needed.
+                        self.past_orders.insert(order.order_id.clone(), order);
                     }
                 }
                 OrderMessages::ExecutionUpdate(order) => {

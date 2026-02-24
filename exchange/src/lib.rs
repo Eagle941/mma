@@ -109,6 +109,7 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
             price: f64::from_str(src.price).unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
             filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
+            updated_time: u64::from_str(src.updated_time).unwrap_or(0),
         };
         OrderMessages::OrderUpdate(order)
     }
@@ -128,6 +129,7 @@ impl<'a> From<&Execution<'a>> for OrderMessages {
             filled_qty: quantity - f64::from_str(src.leaves_qty).unwrap(),
             // NOTE: exec_price may not match average price of the whole order.
             filled_price: f64::from_str(src.exec_price).unwrap_or(f64::NAN),
+            updated_time: 0,
         };
         OrderMessages::ExecutionUpdate(order)
     }
@@ -154,6 +156,7 @@ impl OrderBuilder {
             price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
+            updated_time: 0,
         };
         OrderMessages::NewOrder(order)
     }
@@ -181,6 +184,7 @@ impl OrderAmendedBuilder {
             price: f64::from_str(self.price.as_str()).unwrap(),
             filled_qty: 0.0,
             filled_price: f64::NAN,
+            updated_time: 0,
         };
         OrderMessages::AmendedOrder(order)
     }
@@ -199,4 +203,5 @@ pub struct Order {
     pub price: f64,
     pub filled_qty: f64,
     pub filled_price: f64,
+    pub updated_time: u64,
 }
