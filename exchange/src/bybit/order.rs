@@ -73,7 +73,7 @@ impl OrderHandler {
     pub fn amend_order(&self, order_builder: OrderAmendedBuilder) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
-        let url = format!("{}/v5/order/create", self.base_url);
+        let url = format!("{}/v5/order/amend", self.base_url);
         let time_ms = Utc::now().timestamp_millis().to_string();
 
         // NOTE: always populate price and qty even if they don't change to allow the
