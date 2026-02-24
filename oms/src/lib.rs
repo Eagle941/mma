@@ -139,7 +139,7 @@ impl OrderManagementSystem {
                     old_order.updated_time = order.updated_time;
 
                     if order.order_status.is_closed() {
-                        let order = self.active_orders.remove("uiuiu").unwrap();
+                        let order = self.active_orders.remove(&order.order_id).unwrap();
                         if order.order_status == OrderStatus::Filled {
                             match order.side {
                                 OrderSide::Buy => self.last_fill_buy = Some(order.clone()),
