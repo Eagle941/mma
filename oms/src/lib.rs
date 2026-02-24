@@ -86,6 +86,7 @@ impl OrderManagementSystem {
                     let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
                         // NOTE: this is to prevent manual orders on the UI to
                         // affect the logic of the bot.
+                        println!("DISCARDED amended order {}", &order.order_id);
                         continue;
                     };
                     old_order.price = order.price;
@@ -96,6 +97,7 @@ impl OrderManagementSystem {
                     let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
                         // NOTE: this is to prevent manual orders on the UI to
                         // affect the logic of the bot.
+                        println!("DISCARDED updated order {}", &order.order_id);
                         continue;
                     };
 
@@ -127,6 +129,7 @@ impl OrderManagementSystem {
                     let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
                         // NOTE: this is to prevent manual orders on the UI to
                         // affect the logic of the bot.
+                        println!("DISCARDED execution order {}", &order.order_id);
                         continue;
                     };
 
