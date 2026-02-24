@@ -128,6 +128,7 @@ impl OrderHandler {
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
                             || content.ret_code == 170193
+                            || content.ret_code == 10001
                         {
                             // Timestamp for this request is outside of the
                             // recvWindow.
@@ -139,6 +140,10 @@ impl OrderHandler {
                             // NOTE: This error occurs when order book changed while submitting the
                             // order. Wait for the next cycle to submit another order at a different
                             // price.
+                            // The order remains unchanged as the parameters entered match the
+                            // existing ones. NOTE: This error occurs
+                            // when two identical amend orders are issued at the same time due to
+                            // the latency to receive the HTTP response.
                             return;
                         } else {
                             panic!(
