@@ -41,14 +41,14 @@ impl RiskManager {
         last_buy: Option<&Order>,
         last_sell: Option<&Order>,
     ) -> Outcome {
-        const MAX_INVENTORY: f64 = 3000.0;
-        const MIN_INVENTORY: f64 = -1800.0;
+        const MAX_INVENTORY: f64 = 500.0;
+        const MIN_INVENTORY: f64 = -500.0;
 
-        if inventory > MAX_INVENTORY && new_order.side == OrderSide::Buy {
+        if inventory >= MAX_INVENTORY && new_order.side == OrderSide::Buy {
             return Outcome::Nothing;
         }
 
-        if inventory < MIN_INVENTORY && new_order.side == OrderSide::Sell {
+        if inventory <= MIN_INVENTORY && new_order.side == OrderSide::Sell {
             return Outcome::Nothing;
         }
 
