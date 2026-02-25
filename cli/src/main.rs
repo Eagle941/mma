@@ -1,8 +1,8 @@
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
@@ -47,7 +47,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     thread::sleep(Duration::from_millis(1000));
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
-        mpsc::channel();
+        unbounded();
     let strategy_thread = thread::spawn(move || {
         let simple_strategy = SimpleStrategy::factory(order_builder_to_oms.clone());
         loop {
@@ -58,7 +58,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     });
 
     let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
-        mpsc::channel();
+        unbounded();
     let order_to_oms_cloned = order_to_oms.clone();
     let order_ws_thread = thread::spawn(move || {
         let handler = PrivateWebSocket::new(order_to_oms);

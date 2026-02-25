@@ -215,6 +215,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "crossbeam-channel",
  "dotenvy",
  "exchange",
  "exitcode",
@@ -261,6 +262,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -329,6 +339,7 @@ version = "0.0.1"
 dependencies = [
  "attohttpc",
  "chrono",
+ "crossbeam-channel",
  "hex",
  "hmac",
  "rust-bybit",
@@ -742,6 +753,7 @@ dependencies = [
 name = "oms"
 version = "0.0.1"
 dependencies = [
+ "crossbeam-channel",
  "exchange",
 ]
 
@@ -1081,6 +1093,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "strategy"
 version = "0.0.1"
 dependencies = [
+ "crossbeam-channel",
  "exchange",
 ]
 

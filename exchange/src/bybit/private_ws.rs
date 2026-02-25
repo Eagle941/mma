@@ -1,8 +1,8 @@
 use std::env;
-use std::sync::mpsc::Sender;
 
-use bybit::WebSocketApiClient;
 use bybit::ws::response::PrivateResponse;
+use bybit::WebSocketApiClient;
+use crossbeam_channel::Sender;
 
 use crate::OrderMessages;
 

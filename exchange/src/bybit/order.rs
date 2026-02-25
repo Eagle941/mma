@@ -1,8 +1,8 @@
-use std::sync::mpsc::Sender;
 use std::{env, thread};
 
 use attohttpc::Session;
 use chrono::Utc;
+use crossbeam_channel::Sender;
 use hex;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;

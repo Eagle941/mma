@@ -1,7 +1,7 @@
 use std::env;
 use std::str::FromStr;
-use std::sync::mpsc::Sender;
 
+use crossbeam_channel::Sender;
 use exchange::bybit::info::Info;
 use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 

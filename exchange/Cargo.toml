@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 attohttpc = { version = "0.30.1", features = ["json"] }
 chrono = "0.4.43"
+crossbeam-channel.workspace = true
 hex = "0.4.3"
 hmac = "0.12.1"
 rust-bybit = "0.2.0"
