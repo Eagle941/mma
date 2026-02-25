@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};

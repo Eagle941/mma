@@ -1,7 +1,7 @@
 use std::env;
 
-use bybit::ws::response::PrivateResponse;
 use bybit::WebSocketApiClient;
+use bybit::ws::response::PrivateResponse;
 use crossbeam_channel::Sender;
 
 use crate::OrderMessages;
