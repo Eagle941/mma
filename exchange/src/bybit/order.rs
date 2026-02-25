@@ -98,7 +98,6 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
-        println!("Order Amended {:#?}", body);
         // TODO: use non-blocking HTTP request and avoid creating a new thread.
         // TODO: add orderLinkId for optimisations
         // TODO: move from HTTP request to WebSocket

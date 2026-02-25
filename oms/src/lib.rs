@@ -69,8 +69,9 @@ impl OrderManagementSystem {
             self.last_fill_sell.as_ref(),
         ) {
             Outcome::NewOrder(order) => {
-                // NOTE: use `vacant_entry().key()` to reserve the slot.
-                let next_order_link_id = self.active_orders.vacant_entry().key();
+                let entry = self.active_orders.vacant_entry();
+                let next_order_link_id = entry.key();
+                entry.insert(Order::default());
                 self.order_handler.submit_order(order, next_order_link_id)
             }
             Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
@@ -110,6 +111,7 @@ impl OrderManagementSystem {
                 if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
+                    println!("Amended order {order:#?}");
                     old_order.price = order.price;
                     old_order.qty = order.qty;
                     return;

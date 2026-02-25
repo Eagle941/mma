@@ -47,21 +47,23 @@ pub struct OrderBook {
     pub cts: f64,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderSide {
     Buy,
     Sell,
+    #[default]
     NotAvailable,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
+    #[default]
     NotAvailable,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderStatus {
     // Open Status
     New,
@@ -75,6 +77,7 @@ pub enum OrderStatus {
     Triggered,
     Deactivated,
     //
+    #[default]
     NotAvailable,
 }
 impl OrderStatus {
@@ -188,7 +191,7 @@ impl OrderAmendedBuilder {
 
 // TODO: Add order timestamps
 // TODO: Is it better to keep price as String instead of f64?
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Order {
     pub order_id: String,
     pub order_link_id: usize,
