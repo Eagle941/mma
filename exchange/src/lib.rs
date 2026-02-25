@@ -82,10 +82,10 @@ pub enum OrderStatus {
 }
 impl OrderStatus {
     pub fn is_open(&self) -> bool {
-        match self {
-            OrderStatus::New | OrderStatus::PartiallyFilled | OrderStatus::Untriggered => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            OrderStatus::New | OrderStatus::PartiallyFilled | OrderStatus::Untriggered
+        )
     }
 
     pub fn is_closed(&self) -> bool {

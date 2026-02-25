@@ -149,7 +149,6 @@ impl OrderHandler {
                             // Order does not exist.
                             // NOTE: This error occurs when an order is filled during the amend
                             // request.
-                            return;
                         } else {
                             panic!(
                                 "Failed order amend request. Code: {}. Msg: {}",
@@ -233,7 +232,6 @@ impl OrderHandler {
                             // NOTE: This error occurs when order book changed while submitting the
                             // order. Wait for the next cycle to submit another order at a different
                             // price.
-                            return;
                         } else {
                             panic!(
                                 "Failed order request. Code: {}. Msg: {}",

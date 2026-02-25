@@ -14,9 +14,7 @@ pub struct RiskManager();
 impl RiskManager {
     fn get_existing_order(orders: &Slab<Order>, side: OrderSide) -> Option<(usize, &Order)> {
         orders
-            .iter()
-            .filter(|(_, o)| o.order_status.is_open() && side == o.side)
-            .next()
+            .iter().find(|(_, o)| o.order_status.is_open() && side == o.side)
     }
 
     // fn get_opposite_order(
@@ -94,6 +92,6 @@ impl RiskManager {
             }
             OrderSide::NotAvailable => return Outcome::Nothing,
         };
-        return Outcome::AmendOrder(amended_order);
+        Outcome::AmendOrder(amended_order)
     }
 }
