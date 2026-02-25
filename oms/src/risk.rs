@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use exchange::{Order, OrderAmendedBuilder, OrderBuilder, OrderSide};
+use slab::Slab;
 
 pub enum Outcome {
     NewOrder(OrderBuilder),
@@ -12,10 +12,7 @@ pub enum Outcome {
 // TODO: This file may be moved to a dedicated library
 pub struct RiskManager();
 impl RiskManager {
-    fn get_existing_order(
-        orders: &HashMap<String, Order>,
-        side: OrderSide,
-    ) -> Option<(&String, &Order)> {
+    fn get_existing_order(orders: &Slab<Order>, side: OrderSide) -> Option<(usize, &Order)> {
         orders
             .iter()
             .filter(|(_, o)| o.order_status.is_open() && side == o.side)
@@ -35,7 +32,7 @@ impl RiskManager {
     // }
 
     pub fn submit_order(
-        orders: &HashMap<String, Order>,
+        orders: &Slab<Order>,
         new_order: OrderBuilder,
         inventory: f64,
         last_buy: Option<&Order>,
@@ -57,7 +54,8 @@ impl RiskManager {
         // This is a very simple risk management. Don't have more than two orders
         // running at the same time.
         // NOTE: Assumption is that there is only one active order per side at a time!
-        let Some((_, existing_order)) = RiskManager::get_existing_order(orders, new_order.side)
+        let Some((order_link_id, existing_order)) =
+            RiskManager::get_existing_order(orders, new_order.side)
         else {
             return Outcome::NewOrder(new_order);
         };
@@ -66,6 +64,7 @@ impl RiskManager {
         let amended_order = OrderAmendedBuilder {
             symbol: new_order.symbol,
             order_id: existing_order.order_id.clone(),
+            order_link_id,
             qty: new_order.qty,
             price: new_order.price.clone(),
             // TODO: is it more efficient to compare String instead of f64?

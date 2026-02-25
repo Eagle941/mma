@@ -81,7 +81,8 @@ impl OrderHandler {
         let mut body = json!({
             "category": "spot",
             "symbol": order_builder.symbol,
-            "orderId": order_builder.order_id
+            "orderId": order_builder.order_id,
+            "orderLinkId": order_builder.order_link_id.to_string(),
         });
         if order_builder.new_qty {
             body["qty"] = json!(order_builder.qty);
@@ -165,7 +166,7 @@ impl OrderHandler {
         });
     }
 
-    pub fn submit_order(&self, order_builder: OrderBuilder) {
+    pub fn submit_order(&self, order_builder: OrderBuilder, order_link_id: usize) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
         let url = format!("{}/v5/order/create", self.base_url);
@@ -173,6 +174,7 @@ impl OrderHandler {
 
         // TODO: add timeInForce parameter
         let body = json!({
+            "orderLinkId": order_link_id.to_string(),
             "category": "spot",
             "isLeverage": 1,
             "symbol": order_builder.symbol,
@@ -215,7 +217,8 @@ impl OrderHandler {
                         if content.ret_code == 0 {
                             let content: OrderResponse =
                                 serde_json::from_str(content.result.get()).unwrap();
-                            let order = order_builder.build(content.order_id.to_string());
+                            let order =
+                                order_builder.build(content.order_id.to_string(), order_link_id);
                             self.to_oms.send(order).unwrap();
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194

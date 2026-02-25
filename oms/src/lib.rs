@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
 use crossbeam_channel::{Receiver, Sender};
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder, OrderMessages, OrderSide, OrderStatus};
+use slab::Slab;
 
-use crate::risk::RiskManager;
+use crate::risk::{Outcome, RiskManager};
 
 pub mod risk;
 
@@ -15,8 +14,7 @@ pub struct OrderManagementSystem {
     order_handler: OrderHandler,
     // TODO: add internal order_id instead of using the one supplied by the
     // exchange.
-    active_orders: HashMap<String, Order>,
-    past_orders: HashMap<String, Order>,
+    active_orders: Slab<Order>,
     // NOTE: at the moment it supports only one pair (ADAUSDT)
     // +ve --> purchased ADA coins
     // -ve --> sold ADA coins
@@ -35,8 +33,8 @@ impl OrderManagementSystem {
             from_strategy,
             from_order_handler,
             order_handler: OrderHandler::new(to_oms),
-            active_orders: HashMap::new(),
-            past_orders: HashMap::new(),
+            active_orders: Slab::with_capacity(5),
+            // NOTE: may be useful to keep track of past_orders
             inventory: 0.0,
             last_fill_buy: None,
             last_fill_sell: None,
@@ -62,7 +60,7 @@ impl OrderManagementSystem {
 
     /// This function is responsible for receiving the order commands from the
     /// strategy and forwarding them to the exchange.
-    pub fn forward_orders(&self, order_builder: OrderBuilder) {
+    pub fn forward_orders(&mut self, order_builder: OrderBuilder) {
         match RiskManager::submit_order(
             &self.active_orders,
             order_builder,
@@ -70,10 +68,14 @@ impl OrderManagementSystem {
             self.last_fill_buy.as_ref(),
             self.last_fill_sell.as_ref(),
         ) {
-            risk::Outcome::NewOrder(order) => self.order_handler.submit_order(order),
-            risk::Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
-            risk::Outcome::Nothing => (),
-        }
+            Outcome::NewOrder(order) => {
+                // NOTE: use `vacant_entry().key()` to reserve the slot.
+                let next_order_link_id = self.active_orders.vacant_entry().key();
+                self.order_handler.submit_order(order, next_order_link_id)
+            }
+            Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
+            Outcome::Nothing => (),
+        };
     }
 
     /// This function is responsible for recording the latest updates to the
@@ -85,68 +87,48 @@ impl OrderManagementSystem {
         match new_order {
             OrderMessages::NewOrder(order) => {
                 // NOTE: skipping check if the order_id exists already!
-                if let Some(old_order) = self.active_orders.get_mut(&order.order_id) {
+                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
                     // NOTE: this happens if an order if filled before it is added to the list
                     // of orders.
+                    println!("New order {order:#?}");
+
+                    old_order.order_id = order.order_id;
+                    old_order.order_link_id = order.order_link_id;
+                    old_order.order_status = order.order_status;
                     old_order.symbol = order.symbol;
                     old_order.side = order.side;
                     old_order.order_type = order.order_type;
                     old_order.qty = order.qty;
                     old_order.price = order.price;
+                    old_order.updated_time = order.updated_time;
                     return;
                 }
-                println!("New order {order:#?}");
-                self.active_orders.insert(order.order_id.clone(), order);
+                println!("DISCARDED new order {}", &order.order_id);
             }
             OrderMessages::AmendedOrder(order) => {
                 // NOTE: assuming order exists already!
-                let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
+                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
-                    println!("DISCARDED amended order {}", &order.order_id);
+                    old_order.price = order.price;
+                    old_order.qty = order.qty;
                     return;
                 };
-                old_order.price = order.price;
-                old_order.qty = order.qty;
+                println!("DISCARDED amended order {}", &order.order_id);
             }
             OrderMessages::OrderUpdate(order) => {
                 // NOTE: assuming order exists already!
-                match self.active_orders.get_mut(&order.order_id) {
-                    Some(_) => (),
-                    None => {
-                        // NOTE: this is to prevent manual orders on the UI to
-                        // affect the logic of the bot.
+                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
+                    println!(
+                        "Updated order {} {:?} {:.3} {:.0}",
+                        order.order_id, order.order_status, order.filled_price, order.filled_qty
+                    );
 
-                        // NOTE: the order update can arrive faster than a new order is
-                        // inserted.
-                        println!("DISCARDED updated order {}", &order.order_id);
-                        if order.order_status == OrderStatus::Filled {
-                            match order.side {
-                                OrderSide::Buy => self.inventory += order.filled_qty,
-                                OrderSide::Sell => self.inventory -= order.filled_qty,
-                                _ => (),
-                            };
-                        }
-                        self.active_orders
-                            .insert(order.order_id.clone(), order.clone());
-                    }
-                };
-                let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
-                    return;
-                };
+                    old_order.order_status = order.order_status;
+                    old_order.filled_price = order.filled_price;
+                    old_order.filled_qty = order.filled_qty;
+                    old_order.updated_time = order.updated_time;
 
-                println!(
-                    "Updated order {} {:?} {:.3} {:.0}",
-                    order.order_id, order.order_status, order.filled_price, order.filled_qty
-                );
-
-                old_order.order_status = order.order_status;
-                old_order.filled_price = order.filled_price;
-                old_order.filled_qty = order.filled_qty;
-                old_order.updated_time = order.updated_time;
-
-                if order.order_status.is_closed() {
-                    let order = self.active_orders.remove(&order.order_id).unwrap();
                     if order.order_status == OrderStatus::Filled {
                         match order.side {
                             OrderSide::Buy => self.last_fill_buy = Some(order.clone()),
@@ -154,29 +136,31 @@ impl OrderManagementSystem {
                             OrderSide::NotAvailable => (),
                         }
                     }
-                    // NOTE: `past_orders` may not be needed.
-                    self.past_orders.insert(order.order_id.clone(), order);
-                }
+
+                    return;
+                };
+                println!("DISCARDED updated order {}", &order.order_id);
             }
             OrderMessages::ExecutionUpdate(order) => {
                 // NOTE: assuming order exists already!
-                let Some(old_order) = self.active_orders.get_mut(&order.order_id) else {
+                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
-                    println!("DISCARDED execution order {}", &order.order_id);
+
+                    println!(
+                        "Execution order {} {:.3} {:.0}",
+                        order.order_id, order.price, order.qty
+                    );
+
+                    match old_order.side {
+                        OrderSide::Buy => self.inventory += order.qty,
+                        OrderSide::Sell => self.inventory -= order.qty,
+                        _ => (),
+                    };
+
                     return;
                 };
-
-                println!(
-                    "Execution order {} {:.3} {:.0}",
-                    order.order_id, order.price, order.qty
-                );
-
-                match old_order.side {
-                    OrderSide::Buy => self.inventory += order.qty,
-                    OrderSide::Sell => self.inventory -= order.qty,
-                    _ => (),
-                };
+                println!("DISCARDED execution order {}", &order.order_id);
             }
         };
 

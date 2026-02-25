@@ -101,6 +101,7 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
         // TODO: this `try_into` is very dangerous. It needs to be improved.
         let order = Order {
             order_id: src.order_id.to_string(),
+            order_link_id: usize::from_str(src.order_link_id).unwrap(),
             order_status: src.order_status.try_into().unwrap(),
             symbol: src.symbol.to_string(),
             side: src.side.try_into().unwrap(),
@@ -118,6 +119,7 @@ impl<'a> From<&Execution<'a>> for OrderMessages {
     fn from(src: &Execution) -> Self {
         let order = OrderExecution {
             order_id: src.order_id.to_string(),
+            order_link_id: usize::from_str(src.order_link_id).unwrap(),
             qty: f64::from_str(src.exec_qty).unwrap(),
             price: f64::from_str(src.exec_price).unwrap(),
             remaining_qty: f64::from_str(src.leaves_qty).unwrap(),
@@ -136,9 +138,10 @@ pub struct OrderBuilder {
 }
 impl OrderBuilder {
     // TODO: should it be converted to an Into trait of `OrderMessages`?
-    pub fn build(self, order_id: String) -> OrderMessages {
+    pub fn build(self, order_id: String, order_link_id: usize) -> OrderMessages {
         let order = Order {
             order_id,
+            order_link_id,
             order_status: OrderStatus::New,
             symbol: self.symbol,
             side: self.side,
@@ -157,6 +160,7 @@ impl OrderBuilder {
 pub struct OrderAmendedBuilder {
     pub symbol: String,
     pub order_id: String,
+    pub order_link_id: usize,
     pub qty: f64,
     pub price: String,
     pub new_price: bool,
@@ -167,6 +171,7 @@ impl OrderAmendedBuilder {
     pub fn build(self, order_id: String) -> OrderMessages {
         let order = Order {
             order_id,
+            order_link_id: self.order_link_id,
             order_status: OrderStatus::NotAvailable,
             symbol: self.symbol,
             side: OrderSide::NotAvailable,
@@ -186,6 +191,7 @@ impl OrderAmendedBuilder {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Order {
     pub order_id: String,
+    pub order_link_id: usize,
     pub order_status: OrderStatus,
     pub symbol: String,
     pub side: OrderSide,
@@ -201,6 +207,7 @@ pub struct Order {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderExecution {
     pub order_id: String,
+    pub order_link_id: usize,
     // NOTE: price is the execution price
     pub price: f64,
     // NOTEL qty is the size of the execution
