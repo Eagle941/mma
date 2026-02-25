@@ -54,8 +54,7 @@ impl RiskManager {
         // This is a very simple risk management. Don't have more than two orders
         // running at the same time.
         // NOTE: Assumption is that there is only one active order per side at a time!
-        let Some((order_link_id, existing_order)) =
-            RiskManager::get_existing_order(orders, new_order.side)
+        let Some((_, existing_order)) = RiskManager::get_existing_order(orders, new_order.side)
         else {
             return Outcome::NewOrder(new_order);
         };
@@ -64,7 +63,7 @@ impl RiskManager {
         let amended_order = OrderAmendedBuilder {
             symbol: new_order.symbol,
             order_id: existing_order.order_id.clone(),
-            order_link_id,
+            order_link_id: existing_order.order_link_id,
             qty: new_order.qty,
             price: new_order.price.clone(),
             // TODO: is it more efficient to compare String instead of f64?

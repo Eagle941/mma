@@ -165,7 +165,7 @@ impl OrderHandler {
         });
     }
 
-    pub fn submit_order(&self, order_builder: OrderBuilder, order_link_id: usize) {
+    pub fn submit_order(&self, order_builder: OrderBuilder, order_link_id: u64) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
         let url = format!("{}/v5/order/create", self.base_url);

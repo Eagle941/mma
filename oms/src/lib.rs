@@ -1,6 +1,10 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crossbeam_channel::{Receiver, Sender};
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder, OrderMessages, OrderSide, OrderStatus};
+use rustc_hash::FxHashMap;
 use slab::Slab;
 
 use crate::risk::{Outcome, RiskManager};
@@ -22,6 +26,9 @@ pub struct OrderManagementSystem {
     inventory: f64,
     last_fill_buy: Option<Order>,
     last_fill_sell: Option<Order>,
+    //
+    id_map: FxHashMap<u64, usize>,
+    id_generator: AtomicU64,
 }
 impl OrderManagementSystem {
     pub fn new(
@@ -29,6 +36,11 @@ impl OrderManagementSystem {
         from_order_handler: Receiver<OrderMessages>,
         to_oms: Sender<OrderMessages>,
     ) -> OrderManagementSystem {
+        let start_time_micros = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System clock went backwards!")
+            .as_micros() as u64;
+
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -38,6 +50,9 @@ impl OrderManagementSystem {
             inventory: 0.0,
             last_fill_buy: None,
             last_fill_sell: None,
+            //
+            id_map: FxHashMap::default(),
+            id_generator: AtomicU64::new(start_time_micros),
         }
     }
 
@@ -69,9 +84,13 @@ impl OrderManagementSystem {
             self.last_fill_sell.as_ref(),
         ) {
             Outcome::NewOrder(order) => {
+                // NOTE: can be moved in separate function and return the `next_order_link_id`
+                let next_order_link_id = self.id_generator.fetch_add(1, Ordering::Relaxed);
+                println!("next_order_link_id {next_order_link_id}");
                 let entry = self.active_orders.vacant_entry();
-                let next_order_link_id = entry.key();
+                let slab_index = entry.key();
                 entry.insert(Order::default());
+                self.id_map.insert(next_order_link_id, slab_index);
                 self.order_handler.submit_order(order, next_order_link_id)
             }
             Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
@@ -87,8 +106,12 @@ impl OrderManagementSystem {
         // TODO: optimise insert or update logic.
         match new_order {
             OrderMessages::NewOrder(order) => {
+                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
+                    println!("DISCARDED new order {}", &order.order_id);
+                    return;
+                };
                 // NOTE: skipping check if the order_id exists already!
-                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
+                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     // NOTE: this happens if an order if filled before it is added to the list
                     // of orders.
                     println!("New order {order:#?}");
@@ -104,11 +127,14 @@ impl OrderManagementSystem {
                     old_order.updated_time = order.updated_time;
                     return;
                 }
-                println!("DISCARDED new order {}", &order.order_id);
             }
             OrderMessages::AmendedOrder(order) => {
+                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
+                    println!("DISCARDED amended order {}", &order.order_id);
+                    return;
+                };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
+                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
                     println!("Amended order {order:#?}");
@@ -116,11 +142,14 @@ impl OrderManagementSystem {
                     old_order.qty = order.qty;
                     return;
                 };
-                println!("DISCARDED amended order {}", &order.order_id);
             }
             OrderMessages::OrderUpdate(order) => {
+                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
+                    println!("DISCARDED updated order {}", &order.order_id);
+                    return;
+                };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
+                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     println!(
                         "Updated order {} {:?} {:.3} {:.0}",
                         order.order_id, order.order_status, order.filled_price, order.filled_qty
@@ -141,11 +170,14 @@ impl OrderManagementSystem {
 
                     return;
                 };
-                println!("DISCARDED updated order {}", &order.order_id);
             }
             OrderMessages::ExecutionUpdate(order) => {
+                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
+                    println!("DISCARDED execution order {}", &order.order_id);
+                    return;
+                };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(order.order_link_id) {
+                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
 
@@ -162,7 +194,6 @@ impl OrderManagementSystem {
 
                     return;
                 };
-                println!("DISCARDED execution order {}", &order.order_id);
             }
         };
 
