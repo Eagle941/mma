@@ -95,25 +95,20 @@ impl OrderStatus {
 
 pub enum OrderMessages {
     NewOrder(Order),
-    AmendedOrder(Order),             // TODO: change to its own struct
-    OrderUpdate(Order),              // TODO: change to its own struct
+    AmendedOrder(OrderAmend),        // TODO: change to its own struct
+    OrderUpdate(OrderUpdate),        // TODO: change to its own struct
     ExecutionUpdate(OrderExecution), // TODO: change to its own struct
 }
 impl<'a> From<&BybitOrder<'a>> for OrderMessages {
     fn from(src: &BybitOrder) -> Self {
         // TODO: this `try_into` is very dangerous. It needs to be improved.
-        let order = Order {
+        let order = OrderUpdate {
             order_id: src.order_id.to_string(),
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             order_status: src.order_status.try_into().unwrap(),
-            symbol: src.symbol.to_string(),
-            side: src.side.try_into().unwrap(),
-            order_type: src.order_type.try_into().unwrap(),
-            qty: f64::from_str(src.qty).unwrap(),
-            price: f64::from_str(src.price).unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
-            filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
-            updated_time: u64::from_str(src.updated_time).unwrap_or(0),
+            filled_price: f64::from_str(src.avg_price).unwrap(),
+            updated_time: u64::from_str(src.updated_time).unwrap(),
         };
         OrderMessages::OrderUpdate(order)
     }
@@ -172,18 +167,11 @@ pub struct OrderAmendedBuilder {
 impl OrderAmendedBuilder {
     // TODO: should it be converted to an Into trait of `OrderMessages`?
     pub fn build(self, order_id: String) -> OrderMessages {
-        let order = Order {
+        let order = OrderAmend {
             order_id,
             order_link_id: self.order_link_id,
-            order_status: OrderStatus::NotAvailable,
-            symbol: self.symbol,
-            side: OrderSide::NotAvailable,
-            order_type: OrderType::NotAvailable,
             qty: self.qty,
             price: f64::from_str(self.price.as_str()).unwrap(),
-            filled_qty: 0.0,
-            filled_price: f64::NAN,
-            updated_time: 0,
         };
         OrderMessages::AmendedOrder(order)
     }
@@ -216,4 +204,23 @@ pub struct OrderExecution {
     // NOTEL qty is the size of the execution
     pub qty: f64,
     pub remaining_qty: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct OrderAmend {
+    pub order_id: String,
+    pub order_link_id: u64,
+    pub qty: f64,
+    pub price: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct OrderUpdate {
+    pub order_id: String,
+    pub order_link_id: u64,
+    pub order_status: OrderStatus,
+    pub filled_qty: f64,
+    // NOTE: this is the average price of the order execution
+    pub filled_price: f64,
+    pub updated_time: u64,
 }

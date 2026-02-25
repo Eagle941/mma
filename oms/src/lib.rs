@@ -137,7 +137,10 @@ impl OrderManagementSystem {
                 if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
-                    println!("Amended order {order:#?}");
+                    println!(
+                        "Amended order {} {:.3} {:.0}",
+                        order.order_id, order.price, order.qty
+                    );
                     old_order.price = order.price;
                     old_order.qty = order.qty;
                     return;
@@ -161,9 +164,9 @@ impl OrderManagementSystem {
                     old_order.updated_time = order.updated_time;
 
                     if order.order_status == OrderStatus::Filled {
-                        match order.side {
-                            OrderSide::Buy => self.last_fill_buy = Some(order.clone()),
-                            OrderSide::Sell => self.last_fill_sell = Some(order.clone()),
+                        match old_order.side {
+                            OrderSide::Buy => self.last_fill_buy = Some(old_order.clone()),
+                            OrderSide::Sell => self.last_fill_sell = Some(old_order.clone()),
                             OrderSide::NotAvailable => (),
                         }
                     }
