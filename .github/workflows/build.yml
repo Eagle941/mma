@@ -1,0 +1,96 @@
+name: Push Checks
+on: push
+
+env:
+    RUST_VERSION: 1.93.0 # If this is updated, update `Cargo.toml`.
+    CARGO_TERM_COLOR: always
+    RUSTDOCFLAGS: "-D warnings" # Fail on `cargo doc` warnings.
+
+jobs:
+    build:
+        name: Test
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        runs-on: ${{ matrix.os }}
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: "build-cache"
+                  cache-all-crates: "true"
+                  cache-directories: |
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      target/
+            - name: Build
+              run: cargo build --locked
+            - name: Run tests
+              run: cargo test --locked
+
+    clippy:
+        name: Lint
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: "clippy-cache"
+                  cache-all-crates: "true"
+                  cache-directories: |
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      target/
+            - name: Cargo clippy
+              run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+    lint:
+        name: Formatting
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: "fmt-cache"
+                  cache-all-crates: "true"
+                  cache-directories: |
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      target/
+            - name: Install rust nightly
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: nightly
+                  profile: minimal
+                  override: true
+                  components: rustfmt
+            - name: Cargo fmt
+              run: cargo +nightly fmt --all -- --check
+
+    doc:
+        name: Documentation
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: "doc-cache"
+                  cache-all-crates: "true"
+                  cache-directories: |
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      target/
+            - name: Cargo doc
+              run: cargo doc --no-deps --document-private-items --locked

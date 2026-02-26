@@ -8,8 +8,18 @@ repository.workspace = true
 readme.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "mma"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.98"
-# arinc-explorer = { path = "../arinc-explorer" }
 clap = { version = "4.5.3", features = ["derive"] }
+crossbeam-channel.workspace = true
+dotenvy = "0.15.7"
 exitcode = "1.1.2"
+triple_buffer = "8.1.1"
+
+exchange = { path = "../exchange" }
+strategy = { path = "../strategy" }
+oms = { path = "../oms" }

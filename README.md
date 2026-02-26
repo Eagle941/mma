@@ -21,15 +21,15 @@ monitoring.
 |         |                                                             |
 |         v                                                             |
 |  +-------------------+      +-------------------+                     |
-|  |   Pricing & Quote | <--> |   Risk & Inventory |                    |
-|  |      Engine       |      |     Management     |                    |
+|  |  Pricing & Quote  | <--> |  Risk & Inventory |                     |
+|  |  Engine           |      |  Management       |                     |
 |  +-------------------+      +-------------------+                     |
-|         | ^                              |                            |
-|         v |                              v                            |
-|  +-------------------+        +-------------------+                   |
-|  |  Order Management  |       |   Hedging Engine  |                   |
-|  |   System (OMS)     |       |   (Optional)      |                   |
-|  +-------------------+        +-------------------+                   |
+|         | ^                            |                              |
+|         v |                            v                              |
+|  +-------------------+      +-------------------+                     |
+|  |  Order Management |      |  Hedging Engine   |                     |
+|  |  System (OMS)     |      |  (Optional)       |                     |
+|  +-------------------+      +-------------------+                     |
 |         |                              |                              |
 +---------|------------------------------|------------------------------+
           |                              |
@@ -38,8 +38,8 @@ monitoring.
 |                        EXCHANGE CONNECTION LAYER                      |
 |                                                                       |
 |  +-------------------+        +-------------------+                   |
-|  |   Market Data     |        |   Order Execution |                   |
-|  |   Feed Handler    |        |      Handler      |                   |
+|  |  Market Data      |        |  Order Execution  |                   |
+|  |  Feed Handler     |        |  Handler          |                   |
 |  +-------------------+        +-------------------+                   |
 |         | ^                              | ^                          |
 +---------|--------------------------------|----------------------------+
@@ -148,3 +148,11 @@ offsetting trade on another market to neutralize the newly acquired risk.
 Loop: This entire process runs in a continuous loop, often millions of times per
 day, with the bot constantly adjusting its quotes in response to the market.
 
+## Instructions
+
+Before the library can be compiled on Linux, make sure the following
+dependencies have been installed:
+
+```bash
+sudo apt install build-essential pkg-config libssl-dev
+```

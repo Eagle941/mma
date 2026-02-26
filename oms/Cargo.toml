@@ -1,0 +1,15 @@
+[package]
+name = "oms"
+version = "0.0.1"
+description = "This package contains the order management system which keeps track of the orders sent to the exchange."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+publish.workspace = true
+
+[dependencies]
+crossbeam-channel.workspace = true
+exchange = { path = "../exchange" }
+rustc-hash = "2.1.1"
+slab = "0.4.12"
