@@ -90,7 +90,6 @@ impl RiskManager {
                     return Outcome::Nothing;
                 }
             }
-            OrderSide::NotAvailable => return Outcome::Nothing,
         };
         Outcome::AmendOrder(amended_order)
     }

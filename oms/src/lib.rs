@@ -104,12 +104,6 @@ impl OrderManagementSystem {
     pub fn order_response(&mut self, new_order: OrderMessages) {
         // TODO: optimise insert or update logic.
         match new_order {
-            OrderMessages::NewOrder(order) => {
-                unreachable!("DISCARDED new order {}", &order.order_link_id);
-            }
-            OrderMessages::AmendedOrder(order) => {
-                unreachable!("DISCARDED amended order {}", &order.order_link_id);
-            }
             OrderMessages::OrderUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
                     println!("DISCARDED updated order {}", &order.order_link_id);
@@ -136,7 +130,6 @@ impl OrderManagementSystem {
                         match old_order.side {
                             OrderSide::Buy => self.last_fill_buy = Some(old_order.clone()),
                             OrderSide::Sell => self.last_fill_sell = Some(old_order.clone()),
-                            OrderSide::NotAvailable => (),
                         }
                     }
 
@@ -161,7 +154,6 @@ impl OrderManagementSystem {
                     match old_order.side {
                         OrderSide::Buy => self.inventory += order.qty,
                         OrderSide::Sell => self.inventory -= order.qty,
-                        _ => (),
                     };
 
                     return;

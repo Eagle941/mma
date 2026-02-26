@@ -47,23 +47,19 @@ pub struct OrderBook {
     pub cts: f64,
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderSide {
     Buy,
     Sell,
-    #[default]
-    NotAvailable,
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
-    #[default]
-    NotAvailable,
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderStatus {
     Submitted,
     // Open Status
@@ -77,9 +73,6 @@ pub enum OrderStatus {
     Cancelled,
     Triggered,
     Deactivated,
-    //
-    #[default]
-    NotAvailable,
 }
 impl OrderStatus {
     pub fn is_open(&self) -> bool {
@@ -95,8 +88,6 @@ impl OrderStatus {
 }
 
 pub enum OrderMessages {
-    NewOrder(Order),
-    AmendedOrder(OrderAmend),
     OrderUpdate(OrderUpdate),
     ExecutionUpdate(OrderExecution),
 }
@@ -162,21 +153,10 @@ pub struct OrderAmendedBuilder {
     pub new_price: bool,
     pub new_qty: bool,
 }
-impl OrderAmendedBuilder {
-    // TODO: should it be converted to an Into trait of `OrderMessages`?
-    pub fn build(self) -> OrderMessages {
-        let order = OrderAmend {
-            order_link_id: self.order_link_id,
-            qty: self.qty,
-            price: f64::from_str(self.price.as_str()).unwrap(),
-        };
-        OrderMessages::AmendedOrder(order)
-    }
-}
 
 // TODO: Add order timestamps
 // TODO: Is it better to keep price as String instead of f64?
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Order {
     pub order_link_id: u64,
     pub order_status: OrderStatus,
@@ -208,7 +188,7 @@ pub struct OrderAmend {
     pub price: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderUpdate {
     pub order_link_id: u64,
     pub order_status: OrderStatus,
