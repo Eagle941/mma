@@ -153,6 +153,10 @@ impl OrderHandler {
                             // NOTE: This error occurs when an order is filled
                             // during the amend
                             // request.
+                            println!(
+                                "Amend order error. Code: {}. Msg: {}",
+                                content.ret_code, content.ret_msg
+                            );
                         } else {
                             panic!(
                                 "Failed order amend request. Code: {}. Msg: {}",
@@ -237,6 +241,10 @@ impl OrderHandler {
                             // order. Wait for the next cycle to submit another
                             // order at a different
                             // price.
+                            println!(
+                                "Submit order error. Code: {}. Msg: {}",
+                                content.ret_code, content.ret_msg
+                            );
                         } else {
                             panic!(
                                 "Failed order request. Code: {}. Msg: {}",
