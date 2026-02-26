@@ -132,8 +132,6 @@ impl OrderManagementSystem {
                             OrderSide::Sell => self.last_fill_sell = Some(old_order.clone()),
                         }
                     }
-
-                    return;
                 };
             }
             OrderMessages::ExecutionUpdate(order) => {
@@ -155,8 +153,6 @@ impl OrderManagementSystem {
                         OrderSide::Buy => self.inventory += order.qty,
                         OrderSide::Sell => self.inventory -= order.qty,
                     };
-
-                    return;
                 };
             }
         };
