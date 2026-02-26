@@ -65,6 +65,7 @@ pub enum OrderType {
 
 #[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderStatus {
+    Submitted,
     // Open Status
     New,
     PartiallyFilled,
@@ -95,9 +96,9 @@ impl OrderStatus {
 
 pub enum OrderMessages {
     NewOrder(Order),
-    AmendedOrder(OrderAmend),        // TODO: change to its own struct
-    OrderUpdate(OrderUpdate),        // TODO: change to its own struct
-    ExecutionUpdate(OrderExecution), // TODO: change to its own struct
+    AmendedOrder(OrderAmend),
+    OrderUpdate(OrderUpdate),
+    ExecutionUpdate(OrderExecution),
 }
 impl<'a> From<&BybitOrder<'a>> for OrderMessages {
     fn from(src: &BybitOrder) -> Self {
@@ -105,6 +106,8 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
         let order = OrderUpdate {
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             order_status: src.order_status.try_into().unwrap(),
+            qty: f64::from_str(src.qty).unwrap(),
+            price: f64::from_str(src.price).unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
             filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
             updated_time: u64::from_str(src.updated_time).unwrap(),
@@ -134,11 +137,11 @@ pub struct OrderBuilder {
 }
 impl OrderBuilder {
     // TODO: should it be converted to an Into trait of `OrderMessages`?
-    pub fn build(self, order_link_id: u64) -> OrderMessages {
-        let order = Order {
+    pub fn build(&self, order_link_id: u64) -> Order {
+        Order {
             order_link_id,
-            order_status: OrderStatus::New,
-            symbol: self.symbol,
+            order_status: OrderStatus::Submitted,
+            symbol: self.symbol.clone(),
             side: self.side,
             order_type: self.order_type,
             qty: self.qty,
@@ -146,8 +149,7 @@ impl OrderBuilder {
             filled_qty: 0.0,
             filled_price: f64::NAN,
             updated_time: 0,
-        };
-        OrderMessages::NewOrder(order)
+        }
     }
 }
 
@@ -210,6 +212,8 @@ pub struct OrderAmend {
 pub struct OrderUpdate {
     pub order_link_id: u64,
     pub order_status: OrderStatus,
+    pub qty: f64,
+    pub price: f64,
     pub filled_qty: f64,
     // NOTE: this is the average price of the order execution
     pub filled_price: f64,

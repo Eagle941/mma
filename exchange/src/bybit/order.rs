@@ -2,7 +2,6 @@ use std::{env, thread};
 
 use attohttpc::Session;
 use chrono::Utc;
-use crossbeam_channel::Sender;
 use hex;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
@@ -10,7 +9,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sha2::Sha256;
 
-use crate::{OrderAmendedBuilder, OrderBuilder, OrderMessages};
+use crate::{OrderAmendedBuilder, OrderBuilder};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -40,12 +39,11 @@ pub struct OrderHandler {
     api_secret: String,
     recv_window: u32,
     session: Session,
-    to_oms: Sender<OrderMessages>,
 }
 impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
-    pub fn new(to_oms: Sender<OrderMessages>) -> Self {
+    pub fn new() -> Self {
         // TODO: add option to switch between testnet and production.
         let base_url = "https://api-testnet.bybit.com".to_string();
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
@@ -61,7 +59,6 @@ impl OrderHandler {
         session.header("X-BAPI-API-KEY", &api_key);
         session.header("X-BAPI-RECV-WINDOW", recv_window);
         OrderHandler {
-            to_oms,
             base_url,
             api_key,
             api_secret,
@@ -70,7 +67,7 @@ impl OrderHandler {
         }
     }
 
-    pub fn amend_order(&self, order_builder: OrderAmendedBuilder) {
+    pub fn amend_order(&self, order_builder: &OrderAmendedBuilder) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
         let url = format!("{}/v5/order/amend", self.base_url);
@@ -120,8 +117,7 @@ impl OrderHandler {
                         let content = x.text().unwrap();
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
-                            let order = order_builder.build();
-                            self.to_oms.send(order).unwrap();
+                            // Do nothing
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
                             || content.ret_code == 170193
@@ -172,7 +168,7 @@ impl OrderHandler {
         });
     }
 
-    pub fn submit_order(&self, order_builder: OrderBuilder, order_link_id: u64) {
+    pub fn submit_order(&self, order_builder: &OrderBuilder, order_link_id: u64) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
         let url = format!("{}/v5/order/create", self.base_url);
@@ -221,8 +217,7 @@ impl OrderHandler {
                         let content = x.text().unwrap();
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
-                            let order = order_builder.build(order_link_id);
-                            self.to_oms.send(order).unwrap();
+                            // Do nothing
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
                             || content.ret_code == 170193

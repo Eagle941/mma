@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
@@ -64,7 +64,6 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
         unbounded();
-    let order_to_oms_cloned = order_to_oms.clone();
     let order_ws_thread = thread::Builder::new()
         .name("order_ws_thread".to_string())
         .spawn(move || {
@@ -77,8 +76,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
         .spawn(move || {
             // TODO: Improve this nested use of channels. OMS takes both sender and receiver
             // channel.
-            let mut oms =
-                OrderManagementSystem::new(from_strategy, from_order_handler, order_to_oms_cloned);
+            let mut oms = OrderManagementSystem::new(from_strategy, from_order_handler);
             oms.cycle();
         })?;
 

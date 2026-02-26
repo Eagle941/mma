@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder, OrderMessages, OrderSide, OrderStatus};
 use rustc_hash::FxHashMap;
@@ -34,7 +34,6 @@ impl OrderManagementSystem {
     pub fn new(
         from_strategy: Receiver<OrderBuilder>,
         from_order_handler: Receiver<OrderMessages>,
-        to_oms: Sender<OrderMessages>,
     ) -> OrderManagementSystem {
         let start_time_micros = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -44,7 +43,7 @@ impl OrderManagementSystem {
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
-            order_handler: OrderHandler::new(to_oms),
+            order_handler: OrderHandler::new(),
             active_orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
             inventory: 0.0,
@@ -89,11 +88,11 @@ impl OrderManagementSystem {
                 println!("next_order_link_id {next_order_link_id}");
                 let entry = self.active_orders.vacant_entry();
                 let slab_index = entry.key();
-                entry.insert(Order::default());
+                entry.insert(order.build(next_order_link_id));
                 self.id_map.insert(next_order_link_id, slab_index);
-                self.order_handler.submit_order(order, next_order_link_id)
+                self.order_handler.submit_order(&order, next_order_link_id)
             }
-            Outcome::AmendOrder(order) => self.order_handler.amend_order(order),
+            Outcome::AmendOrder(order) => self.order_handler.amend_order(&order),
             Outcome::Nothing => (),
         };
     }
@@ -106,44 +105,10 @@ impl OrderManagementSystem {
         // TODO: optimise insert or update logic.
         match new_order {
             OrderMessages::NewOrder(order) => {
-                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED new order {}", &order.order_link_id);
-                    return;
-                };
-                // NOTE: skipping check if the order_id exists already!
-                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
-                    // NOTE: this happens if an order if filled before it is added to the list
-                    // of orders.
-                    println!("New order {order:#?}");
-
-                    old_order.order_link_id = order.order_link_id;
-                    old_order.order_status = order.order_status;
-                    old_order.symbol = order.symbol;
-                    old_order.side = order.side;
-                    old_order.order_type = order.order_type;
-                    old_order.qty = order.qty;
-                    old_order.price = order.price;
-                    old_order.updated_time = order.updated_time;
-                    return;
-                }
+                unreachable!("DISCARDED new order {}", &order.order_link_id);
             }
             OrderMessages::AmendedOrder(order) => {
-                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED amended order {}", &order.order_link_id);
-                    return;
-                };
-                // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
-                    // NOTE: this is to prevent manual orders on the UI to
-                    // affect the logic of the bot.
-                    println!(
-                        "Amended order {} {:.3} {:.0}",
-                        order.order_link_id, order.price, order.qty
-                    );
-                    old_order.price = order.price;
-                    old_order.qty = order.qty;
-                    return;
-                };
+                unreachable!("DISCARDED amended order {}", &order.order_link_id);
             }
             OrderMessages::OrderUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
@@ -160,6 +125,8 @@ impl OrderManagementSystem {
                         order.filled_qty
                     );
 
+                    old_order.price = order.price;
+                    old_order.qty = order.qty;
                     old_order.order_status = order.order_status;
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
