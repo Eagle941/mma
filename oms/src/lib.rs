@@ -1,9 +1,10 @@
+use std::f64;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::Receiver;
 use exchange::bybit::order::OrderHandler;
-use exchange::{Order, OrderBuilder, OrderMessages, OrderSide, OrderStatus};
+use exchange::{Order, OrderBuilder, OrderMessages, OrderSide};
 use rustc_hash::FxHashMap;
 use slab::Slab;
 
@@ -23,8 +24,7 @@ pub struct OrderManagementSystem {
     // -ve --> sold ADA coins
     // A value of 0 shows no exposure to the market i.e. all positions closed.
     inventory: f64,
-    last_fill_buy: Option<Order>,
-    last_fill_sell: Option<Order>,
+    avg_entry_price: f64,
     //
     id_map: FxHashMap<u64, usize>,
     id_generator: AtomicU64,
@@ -46,8 +46,7 @@ impl OrderManagementSystem {
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
             inventory: 0.0,
-            last_fill_buy: None,
-            last_fill_sell: None,
+            avg_entry_price: 0.0,
             //
             id_map: FxHashMap::default(),
             id_generator: AtomicU64::new(start_time_micros),
@@ -78,8 +77,7 @@ impl OrderManagementSystem {
             &self.orders,
             order_builder,
             self.inventory,
-            self.last_fill_buy.as_ref(),
-            self.last_fill_sell.as_ref(),
+            self.avg_entry_price,
         ) {
             Outcome::NewOrder(order) => {
                 // NOTE: can be moved in separate function and return the `next_order_link_id`
@@ -124,13 +122,6 @@ impl OrderManagementSystem {
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                     old_order.updated_time = order.updated_time;
-
-                    if order.order_status == OrderStatus::Filled {
-                        match old_order.side {
-                            OrderSide::Buy => self.last_fill_buy = Some(old_order.clone()),
-                            OrderSide::Sell => self.last_fill_sell = Some(old_order.clone()),
-                        }
-                    }
                 };
             }
             OrderMessages::ExecutionUpdate(order) => {
@@ -148,10 +139,29 @@ impl OrderManagementSystem {
                         order.order_link_id, order.price, order.qty
                     );
 
+                    let is_opening_position = match old_order.side {
+                        OrderSide::Buy => self.inventory >= 0.0,
+                        OrderSide::Sell => self.inventory <= 0.0,
+                    };
+
+                    if self.inventory.abs() < 1.0 {
+                        self.avg_entry_price = order.price;
+                    } else if is_opening_position {
+                        let total_value = (self.inventory.abs() * self.avg_entry_price)
+                            + (order.qty * order.price);
+                        let total_inventory = self.inventory.abs() + order.qty;
+                        self.avg_entry_price = total_value / total_inventory;
+                    }
+
                     match old_order.side {
                         OrderSide::Buy => self.inventory += order.qty,
                         OrderSide::Sell => self.inventory -= order.qty,
                     };
+
+                    if self.inventory.abs() < 1.0 {
+                        self.inventory = 0.0;
+                        self.avg_entry_price = 0.0;
+                    }
                 };
             }
         };
