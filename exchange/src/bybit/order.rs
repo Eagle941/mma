@@ -55,7 +55,6 @@ impl OrderHandler {
         // fail if the transmission time is greater than your X-BAPI-RECV-WINDOW.
         let recv_window = 1000;
         let mut session = Session::new();
-        session.header("X-BAPI-SIGN", &api_secret);
         session.header("X-BAPI-API-KEY", &api_key);
         session.header("X-BAPI-RECV-WINDOW", recv_window);
         OrderHandler {
@@ -94,21 +93,20 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+            .json(&body)
+            .unwrap();
+        let order_link_id = order_builder.order_link_id;
         // TODO: use non-blocking HTTP request and avoid creating a new thread.
         // TODO: add orderLinkId for optimisations
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
-        thread::scope(|_| {
-            let res = self
-                .session
-                .post(url)
-                .header("X-BAPI-API-KEY", &self.api_key)
-                .header("X-BAPI-SIGN", signature)
-                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
-                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
-                .json(&body)
-                .unwrap()
-                .send();
+        thread::spawn(move || {
+            let res = request.send();
             match res {
                 Ok(x) => {
                     if !x.is_success() {
@@ -151,7 +149,7 @@ impl OrderHandler {
                             // request.
                             println!(
                                 "Amend order error. {} Code: {}. Msg: {}",
-                                order_builder.order_link_id, content.ret_code, content.ret_msg
+                                order_link_id, content.ret_code, content.ret_msg
                             );
                         } else {
                             panic!(
@@ -193,22 +191,20 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+            .json(&body)
+            .unwrap();
         // println!("Order {:#?}", body);
         // TODO: use non-blocking HTTP request and avoid creating a new thread.
         // TODO: add orderLinkId for optimisations
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
-        thread::scope(|_| {
-            let res = self
-                .session
-                .post(url)
-                .header("X-BAPI-API-KEY", &self.api_key)
-                .header("X-BAPI-SIGN", signature)
-                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
-                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
-                .json(&body)
-                .unwrap()
-                .send();
+        thread::spawn(move || {
+            let res = request.send();
             match res {
                 Ok(x) => {
                     if !x.is_success() {

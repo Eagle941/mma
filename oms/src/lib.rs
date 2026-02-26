@@ -16,8 +16,7 @@ pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
     from_order_handler: Receiver<OrderMessages>,
     order_handler: OrderHandler,
-    // TODO: add internal order_id instead of using the one supplied by the
-    // exchange.
+    // TODO: the Slab will grow infinitely. It needs to be pruned when orders are completed.
     orders: Slab<Order>,
     // NOTE: at the moment it supports only one pair (ADAUSDT)
     // +ve --> purchased ADA coins
