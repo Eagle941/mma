@@ -106,7 +106,7 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             order_status: src.order_status.try_into().unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
-            filled_price: f64::from_str(src.avg_price).unwrap(),
+            filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
             updated_time: u64::from_str(src.updated_time).unwrap(),
         };
         OrderMessages::OrderUpdate(order)
