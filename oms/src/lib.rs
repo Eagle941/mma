@@ -107,7 +107,7 @@ impl OrderManagementSystem {
         match new_order {
             OrderMessages::NewOrder(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED new order {}", &order.order_id);
+                    println!("DISCARDED new order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: skipping check if the order_id exists already!
@@ -116,7 +116,6 @@ impl OrderManagementSystem {
                     // of orders.
                     println!("New order {order:#?}");
 
-                    old_order.order_id = order.order_id;
                     old_order.order_link_id = order.order_link_id;
                     old_order.order_status = order.order_status;
                     old_order.symbol = order.symbol;
@@ -130,7 +129,7 @@ impl OrderManagementSystem {
             }
             OrderMessages::AmendedOrder(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED amended order {}", &order.order_id);
+                    println!("DISCARDED amended order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: assuming order exists already!
@@ -139,7 +138,7 @@ impl OrderManagementSystem {
                     // affect the logic of the bot.
                     println!(
                         "Amended order {} {:.3} {:.0}",
-                        order.order_id, order.price, order.qty
+                        order.order_link_id, order.price, order.qty
                     );
                     old_order.price = order.price;
                     old_order.qty = order.qty;
@@ -148,14 +147,17 @@ impl OrderManagementSystem {
             }
             OrderMessages::OrderUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED updated order {}", &order.order_id);
+                    println!("DISCARDED updated order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: assuming order exists already!
                 if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
                     println!(
                         "Updated order {} {:?} {:.3} {:.0}",
-                        order.order_id, order.order_status, order.filled_price, order.filled_qty
+                        order.order_link_id,
+                        order.order_status,
+                        order.filled_price,
+                        order.filled_qty
                     );
 
                     old_order.order_status = order.order_status;
@@ -176,7 +178,7 @@ impl OrderManagementSystem {
             }
             OrderMessages::ExecutionUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED execution order {}", &order.order_id);
+                    println!("DISCARDED execution order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: assuming order exists already!
@@ -186,7 +188,7 @@ impl OrderManagementSystem {
 
                     println!(
                         "Execution order {} {:.3} {:.0}",
-                        order.order_id, order.price, order.qty
+                        order.order_link_id, order.price, order.qty
                     );
 
                     match old_order.side {

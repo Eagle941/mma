@@ -81,7 +81,6 @@ impl OrderHandler {
         let mut body = json!({
             "category": "spot",
             "symbol": order_builder.symbol,
-            "orderId": order_builder.order_id,
             "orderLinkId": order_builder.order_link_id.to_string(),
         });
         if order_builder.new_qty {
@@ -121,9 +120,7 @@ impl OrderHandler {
                         let content = x.text().unwrap();
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
-                            let content: OrderResponse =
-                                serde_json::from_str(content.result.get()).unwrap();
-                            let order = order_builder.build(content.order_id.to_string());
+                            let order = order_builder.build();
                             self.to_oms.send(order).unwrap();
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
@@ -133,21 +130,28 @@ impl OrderHandler {
                         {
                             // Timestamp for this request is outside of the
                             // recvWindow.
-                            // NOTE: if the order request took too long to arrive, just skip the
-                            // order and let the strategy send a new one in the next cycle with
+                            // NOTE: if the order request took too long to
+                            // arrive, just skip the
+                            // order and let the strategy send a new one in the
+                            // next cycle with
                             // updated values.
                             // Sell order price cannot be lower than %s.
                             // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed while submitting the
-                            // order. Wait for the next cycle to submit another order at a different
+                            // NOTE: This error occurs when order book changed
+                            // while submitting the
+                            // order. Wait for the next cycle to submit another
+                            // order at a different
                             // price.
-                            // The order remains unchanged as the parameters entered match the
+                            // The order remains unchanged as the parameters
+                            // entered match the
                             // existing ones.
                             // NOTE: This error occurs
-                            // when two identical amend orders are issued at the same time due to
+                            // when two identical amend orders are issued at the
+                            // same time due to
                             // the latency to receive the HTTP response.
                             // Order does not exist.
-                            // NOTE: This error occurs when an order is filled during the amend
+                            // NOTE: This error occurs when an order is filled
+                            // during the amend
                             // request.
                         } else {
                             panic!(
@@ -213,10 +217,7 @@ impl OrderHandler {
                         let content = x.text().unwrap();
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
-                            let content: OrderResponse =
-                                serde_json::from_str(content.result.get()).unwrap();
-                            let order =
-                                order_builder.build(content.order_id.to_string(), order_link_id);
+                            let order = order_builder.build(order_link_id);
                             self.to_oms.send(order).unwrap();
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
@@ -224,13 +225,17 @@ impl OrderHandler {
                         {
                             // Timestamp for this request is outside of the
                             // recvWindow.
-                            // NOTE: if the order request took too long to arrive, just skip the
-                            // order and let the strategy send a new one in the next cycle with
+                            // NOTE: if the order request took too long to
+                            // arrive, just skip the
+                            // order and let the strategy send a new one in the
+                            // next cycle with
                             // updated values.
                             // Sell order price cannot be lower than %s.
                             // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed while submitting the
-                            // order. Wait for the next cycle to submit another order at a different
+                            // NOTE: This error occurs when order book changed
+                            // while submitting the
+                            // order. Wait for the next cycle to submit another
+                            // order at a different
                             // price.
                         } else {
                             panic!(

@@ -1,7 +1,7 @@
 use std::env;
 
-use bybit::WebSocketApiClient;
 use bybit::ws::response::PrivateResponse;
+use bybit::WebSocketApiClient;
 use crossbeam_channel::Sender;
 
 use crate::OrderMessages;
@@ -38,12 +38,18 @@ impl PrivateWebSocket {
             PrivateResponse::Order(res) => {
                 let data = res.data;
                 for order in data {
+                    if order.order_link_id.is_empty() {
+                        continue;
+                    }
                     self.to_oms.send((&order).into()).unwrap();
                 }
             }
             PrivateResponse::Execution(res) => {
                 let data = res.data;
                 for order in data {
+                    if order.order_link_id.is_empty() {
+                        continue;
+                    }
                     self.to_oms.send((&order).into()).unwrap();
                 }
             }

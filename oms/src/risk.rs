@@ -14,7 +14,8 @@ pub struct RiskManager();
 impl RiskManager {
     fn get_existing_order(orders: &Slab<Order>, side: OrderSide) -> Option<(usize, &Order)> {
         orders
-            .iter().find(|(_, o)| o.order_status.is_open() && side == o.side)
+            .iter()
+            .find(|(_, o)| o.order_status.is_open() && side == o.side)
     }
 
     // fn get_opposite_order(
@@ -60,7 +61,6 @@ impl RiskManager {
         let new_order_price = f64::from_str(new_order.price.as_str()).unwrap();
         let amended_order = OrderAmendedBuilder {
             symbol: new_order.symbol,
-            order_id: existing_order.order_id.clone(),
             order_link_id: existing_order.order_link_id,
             qty: new_order.qty,
             price: new_order.price.clone(),

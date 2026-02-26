@@ -103,7 +103,6 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
     fn from(src: &BybitOrder) -> Self {
         // TODO: this `try_into` is very dangerous. It needs to be improved.
         let order = OrderUpdate {
-            order_id: src.order_id.to_string(),
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             order_status: src.order_status.try_into().unwrap(),
             filled_qty: f64::from_str(src.cum_exec_qty).unwrap(),
@@ -116,7 +115,6 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
 impl<'a> From<&Execution<'a>> for OrderMessages {
     fn from(src: &Execution) -> Self {
         let order = OrderExecution {
-            order_id: src.order_id.to_string(),
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             qty: f64::from_str(src.exec_qty).unwrap(),
             price: f64::from_str(src.exec_price).unwrap(),
@@ -136,9 +134,8 @@ pub struct OrderBuilder {
 }
 impl OrderBuilder {
     // TODO: should it be converted to an Into trait of `OrderMessages`?
-    pub fn build(self, order_id: String, order_link_id: u64) -> OrderMessages {
+    pub fn build(self, order_link_id: u64) -> OrderMessages {
         let order = Order {
-            order_id,
             order_link_id,
             order_status: OrderStatus::New,
             symbol: self.symbol,
@@ -157,7 +154,6 @@ impl OrderBuilder {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderAmendedBuilder {
     pub symbol: String,
-    pub order_id: String,
     pub order_link_id: u64,
     pub qty: f64,
     pub price: String,
@@ -166,9 +162,8 @@ pub struct OrderAmendedBuilder {
 }
 impl OrderAmendedBuilder {
     // TODO: should it be converted to an Into trait of `OrderMessages`?
-    pub fn build(self, order_id: String) -> OrderMessages {
+    pub fn build(self) -> OrderMessages {
         let order = OrderAmend {
-            order_id,
             order_link_id: self.order_link_id,
             qty: self.qty,
             price: f64::from_str(self.price.as_str()).unwrap(),
@@ -181,7 +176,6 @@ impl OrderAmendedBuilder {
 // TODO: Is it better to keep price as String instead of f64?
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Order {
-    pub order_id: String,
     pub order_link_id: u64,
     pub order_status: OrderStatus,
     pub symbol: String,
@@ -197,7 +191,6 @@ pub struct Order {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderExecution {
-    pub order_id: String,
     pub order_link_id: u64,
     // NOTE: price is the execution price
     pub price: f64,
@@ -208,7 +201,6 @@ pub struct OrderExecution {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct OrderAmend {
-    pub order_id: String,
     pub order_link_id: u64,
     pub qty: f64,
     pub price: f64,
@@ -216,7 +208,6 @@ pub struct OrderAmend {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct OrderUpdate {
-    pub order_id: String,
     pub order_link_id: u64,
     pub order_status: OrderStatus,
     pub filled_qty: f64,
