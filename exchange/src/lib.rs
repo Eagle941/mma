@@ -61,6 +61,8 @@ pub enum OrderType {
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
 pub enum OrderStatus {
+    // The status Submitted is used for orders which have been sent to the exchange, but no
+    // response has been received yet. They may be lost or rejected.
     Submitted,
     // Open Status
     New,

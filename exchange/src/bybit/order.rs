@@ -150,8 +150,8 @@ impl OrderHandler {
                             // during the amend
                             // request.
                             println!(
-                                "Amend order error. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
+                                "Amend order error. {} Code: {}. Msg: {}",
+                                order_builder.order_link_id, content.ret_code, content.ret_msg
                             );
                         } else {
                             panic!(
@@ -237,8 +237,8 @@ impl OrderHandler {
                             // order at a different
                             // price.
                             println!(
-                                "Submit order error. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
+                                "Submit order error. {} Code: {}. Msg: {}",
+                                order_link_id, content.ret_code, content.ret_msg
                             );
                         } else {
                             panic!(

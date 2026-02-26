@@ -18,7 +18,7 @@ pub struct OrderManagementSystem {
     order_handler: OrderHandler,
     // TODO: add internal order_id instead of using the one supplied by the
     // exchange.
-    active_orders: Slab<Order>,
+    orders: Slab<Order>,
     // NOTE: at the moment it supports only one pair (ADAUSDT)
     // +ve --> purchased ADA coins
     // -ve --> sold ADA coins
@@ -44,7 +44,7 @@ impl OrderManagementSystem {
             from_strategy,
             from_order_handler,
             order_handler: OrderHandler::new(),
-            active_orders: Slab::with_capacity(5),
+            orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
             inventory: 0.0,
             last_fill_buy: None,
@@ -76,7 +76,7 @@ impl OrderManagementSystem {
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&mut self, order_builder: OrderBuilder) {
         match RiskManager::submit_order(
-            &self.active_orders,
+            &self.orders,
             order_builder,
             self.inventory,
             self.last_fill_buy.as_ref(),
@@ -86,7 +86,7 @@ impl OrderManagementSystem {
                 // NOTE: can be moved in separate function and return the `next_order_link_id`
                 let next_order_link_id = self.id_generator.fetch_add(1, Ordering::Relaxed);
                 println!("next_order_link_id {next_order_link_id}");
-                let entry = self.active_orders.vacant_entry();
+                let entry = self.orders.vacant_entry();
                 let slab_index = entry.key();
                 entry.insert(order.build(next_order_link_id));
                 self.id_map.insert(next_order_link_id, slab_index);
@@ -110,7 +110,7 @@ impl OrderManagementSystem {
                     return;
                 };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
+                if let Some(old_order) = self.orders.get_mut(*slab_id) {
                     println!(
                         "Updated order {} {:?} {:.3} {:.0}",
                         order.order_link_id,
@@ -140,7 +140,7 @@ impl OrderManagementSystem {
                     return;
                 };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.active_orders.get_mut(*slab_id) {
+                if let Some(old_order) = self.orders.get_mut(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
 
