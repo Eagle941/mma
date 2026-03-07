@@ -82,6 +82,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
             oms.cycle();
         })?;
 
+    // TODO: close the program if either thread panics and crashes
     public_ws_thread
         .join()
         .expect("public_ws_thread has panicked");

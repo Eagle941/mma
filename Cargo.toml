@@ -19,7 +19,9 @@ repository = "https://github.com/Eagle941/mma"
 readme = "README.md"
 
 [profile.release]
-lto = "fat"
+lto = "fat" # link time optimization using using whole-program analysis
+codegen-units = 1 # optimization over all codebase ( better optimization, slower build )
+panic = "abort"
 opt-level = 3 # All optimisations
 debug = true # Added for testing in release mode. To be removed for production
 
