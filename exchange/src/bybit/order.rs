@@ -181,7 +181,8 @@ impl OrderHandler {
             "side": order_builder.side,
             "orderType": order_builder.order_type,
             "qty": order_builder.qty.to_string(),
-            "price": order_builder.price
+            "price": order_builder.price,
+            "timeInForce": "FOK" // Fill or Kill
         });
         let signature = Self::generate_post_signature(
             &time_ms,
