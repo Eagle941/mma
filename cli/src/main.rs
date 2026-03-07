@@ -36,8 +36,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
 
-    let book_ws_thread = thread::Builder::new()
-        .name("book_ws_thread".to_string())
+    let public_ws_thread = thread::Builder::new()
+        .name("public_ws_thread".to_string())
         .spawn(move || {
             let symbol =
                 env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
@@ -51,24 +51,26 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
+    let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
+        unbounded();
+
+    let private_ws_thread = thread::Builder::new()
+        .name("private_ws_thread".to_string())
+        .spawn(move || {
+            let handler = PrivateWebSocket::new(order_to_oms);
+            handler.subscribe();
+        })?;
+
     let strategy_thread = thread::Builder::new()
         .name("strategy_thread".to_string())
         .spawn(move || {
-            let simple_strategy = SimpleStrategy::factory(order_builder_to_oms.clone());
+            let simple_strategy = SimpleStrategy::factory(order_builder_to_oms);
             loop {
+                // NOTE: strategy is executed at around 1Hz for learning
                 let order_book = consumer.read();
                 simple_strategy.execute(order_book);
                 thread::sleep(Duration::from_millis(1000));
             }
-        })?;
-
-    let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
-        unbounded();
-    let order_ws_thread = thread::Builder::new()
-        .name("order_ws_thread".to_string())
-        .spawn(move || {
-            let handler = PrivateWebSocket::new(order_to_oms);
-            handler.subscribe();
         })?;
 
     let oms_thread = thread::Builder::new()
@@ -80,11 +82,13 @@ fn run(_args: Args) -> anyhow::Result<()> {
             oms.cycle();
         })?;
 
-    oms_thread.join().expect("oms_thread has panicked");
-    book_ws_thread.join().expect("book_ws_thread has panicked");
-    order_ws_thread
+    public_ws_thread
         .join()
-        .expect("order_ws_thread has panicked");
+        .expect("public_ws_thread has panicked");
+    private_ws_thread
+        .join()
+        .expect("private_ws_thread has panicked");
+    oms_thread.join().expect("oms_thread has panicked");
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");
