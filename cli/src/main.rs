@@ -2,11 +2,13 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use env_logger::{Builder, Env};
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
+use log::info;
 use oms::OrderManagementSystem;
 use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
@@ -33,6 +35,16 @@ fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::from_filename(".secrets")
         .expect(".secrets file must be present with API_KEY and API_SECRET.");
 
+    let env = Env::default()
+        .filter_or("RUST_LOG", "warn")
+        .write_style_or("RUST_LOG_STYLE", "always");
+    Builder::from_env(env)
+        .format_level(false)
+        .format_timestamp_nanos()
+        .init();
+
+    info!("Started MMA");
+
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
 
@@ -44,10 +56,6 @@ fn run(_args: Args) -> anyhow::Result<()> {
             let mut handler = PublicWebSocket::default();
             handler.subscribe(&mut producer, &symbol);
         })?;
-
-    // Added sleep to give time to the websocket to retrieve the first order
-    // book snapshot
-    thread::sleep(Duration::from_millis(1000));
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();

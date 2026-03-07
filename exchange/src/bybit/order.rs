@@ -4,6 +4,7 @@ use attohttpc::Session;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
+use log::info;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -97,7 +98,7 @@ impl OrderHandler {
             .session
             .post(url)
             .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+            .header("X-BAPI-TIMESTAMP", time_ms)
             .json(&body)
             .unwrap();
         let order_link_id = order_builder.order_link_id;
@@ -147,7 +148,7 @@ impl OrderHandler {
                             // NOTE: This error occurs when an order is filled
                             // during the amend
                             // request.
-                            println!(
+                            info!(
                                 "Amend order error. {} Code: {}. Msg: {}",
                                 order_link_id, content.ret_code, content.ret_msg
                             );
@@ -196,7 +197,7 @@ impl OrderHandler {
             .session
             .post(url)
             .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms.to_string())
+            .header("X-BAPI-TIMESTAMP", time_ms)
             .json(&body)
             .unwrap();
         // println!("Order {:#?}", body);
@@ -215,6 +216,7 @@ impl OrderHandler {
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
                             // Do nothing
+                            info!("order/create request completed")
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
                             || content.ret_code == 170193
@@ -233,7 +235,7 @@ impl OrderHandler {
                             // order. Wait for the next cycle to submit another
                             // order at a different
                             // price.
-                            println!(
+                            info!(
                                 "Submit order error. {} Code: {}. Msg: {}",
                                 order_link_id, content.ret_code, content.ret_msg
                             );

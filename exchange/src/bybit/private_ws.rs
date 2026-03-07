@@ -1,8 +1,9 @@
 use std::env;
 
-use bybit::WebSocketApiClient;
 use bybit::ws::response::PrivateResponse;
+use bybit::WebSocketApiClient;
 use crossbeam_channel::Sender;
+use log::warn;
 
 use crate::OrderMessages;
 
@@ -55,11 +56,11 @@ impl PrivateWebSocket {
             }
             PrivateResponse::Op(res) => {
                 if !res.success {
-                    println!("{res:?}")
+                    warn!("{res:?}")
                 }
             }
             PrivateResponse::Pong(_) => (),
-            x => println!("PrivateResponse::{x:?} not implemented"),
+            x => warn!("PrivateResponse::{x:?} not implemented"),
         };
 
         match client.run(callback) {

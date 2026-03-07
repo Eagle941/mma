@@ -21,9 +21,11 @@ readme = "README.md"
 [profile.release]
 lto = "fat" # link time optimization using using whole-program analysis
 codegen-units = 1 # optimization over all codebase ( better optimization, slower build )
+overflow-checks = true # Keep overflow checks in production builds.
 panic = "abort"
 opt-level = 3 # All optimisations
-debug = true # Added for testing in release mode. To be removed for production
+debug = true # Added for testing in release mode. TODO: Remove for production
 
 [workspace.dependencies]
 crossbeam-channel = "0.5.15"
+log = { version = "0.4.29" } # TODO: Change release level in production

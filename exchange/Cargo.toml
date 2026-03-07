@@ -14,6 +14,7 @@ chrono = "0.4.43"
 crossbeam-channel.workspace = true
 hex = "0.4.3"
 hmac = "0.12.1"
+log.workspace = true
 rust-bybit = "0.2.0"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["raw_value"] }

@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crossbeam_channel::Receiver;
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder, OrderMessages, OrderSide};
+use log::{info, warn};
 use rustc_hash::FxHashMap;
 use slab::Slab;
 
@@ -58,6 +59,7 @@ impl OrderManagementSystem {
             crossbeam_channel::select! {
                 recv(self.from_strategy) -> msg => {
                     if let Ok(order_builder) = msg {
+                        info!("Received order {:?}", order_builder.side);
                         self.forward_orders(order_builder);
                     }
                 },
@@ -82,7 +84,6 @@ impl OrderManagementSystem {
             Outcome::NewOrder(order) => {
                 // NOTE: can be moved in separate function and return the `next_order_link_id`
                 let next_order_link_id = self.id_generator.fetch_add(1, Ordering::Relaxed);
-                println!("next_order_link_id {next_order_link_id}");
                 let entry = self.orders.vacant_entry();
                 let slab_index = entry.key();
                 entry.insert(order.build(next_order_link_id));
@@ -103,12 +104,12 @@ impl OrderManagementSystem {
         match new_order {
             OrderMessages::OrderUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED updated order {}", &order.order_link_id);
+                    warn!("DISCARDED updated order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: assuming order exists already!
                 if let Some(old_order) = self.orders.get_mut(*slab_id) {
-                    println!(
+                    info!(
                         "Updated order {} {:?} {:.3} {:.0}",
                         order.order_link_id,
                         order.order_status,
@@ -126,7 +127,7 @@ impl OrderManagementSystem {
             }
             OrderMessages::ExecutionUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    println!("DISCARDED execution order {}", &order.order_link_id);
+                    warn!("DISCARDED execution order {}", &order.order_link_id);
                     return;
                 };
                 // NOTE: assuming order exists already!
@@ -134,7 +135,7 @@ impl OrderManagementSystem {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
 
-                    println!(
+                    info!(
                         "Execution order {} {:.3} {:.0}",
                         order.order_link_id, order.price, order.qty
                     );
@@ -166,6 +167,6 @@ impl OrderManagementSystem {
             }
         };
 
-        println!("Inventory {:.3}", self.inventory);
+        info!("Inventory {:.3}", self.inventory);
     }
 }
