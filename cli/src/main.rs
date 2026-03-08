@@ -16,7 +16,8 @@ use triple_buffer::TripleBuffer;
 #[derive(Clone, Parser, Debug)]
 pub struct Args {}
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // TODO: handle SIGTERM (^C) gracefully
     // TODO: evaluate whether to use any cli argument or use `.env` file only
     let args = Args::parse();
@@ -44,6 +45,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
         .init();
 
     info!("Started MMA");
+    let runtime_handle = tokio::runtime::Handle::current();
 
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
@@ -84,10 +86,12 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let oms_thread = thread::Builder::new()
         .name("oms_thread".to_string())
         .spawn(move || {
-            // TODO: Improve this nested use of channels. OMS takes both sender and receiver
-            // channel.
+            let guard = runtime_handle.enter();
+
             let mut oms = OrderManagementSystem::new(from_strategy, from_order_handler);
             oms.cycle();
+
+            drop(guard)
         })?;
 
     // TODO: close the program if either thread panics and crashes
