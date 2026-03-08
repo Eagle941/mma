@@ -154,5 +154,9 @@ Before the library can be compiled on Linux, make sure the following
 dependencies have been installed:
 
 ```bash
+# For apt
 sudo apt install build-essential pkg-config libssl-dev
+# For yum
+sudo yum groupinstall "Development Tools"
+sudo yum install openssl-devel
 ```
