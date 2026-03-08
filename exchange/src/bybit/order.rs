@@ -116,7 +116,12 @@ impl OrderHandler {
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
         tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
             Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
         });
     }
 
@@ -156,7 +161,12 @@ impl OrderHandler {
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
         tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
             Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
         });
     }
 
