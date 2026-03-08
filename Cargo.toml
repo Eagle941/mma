@@ -19,9 +19,18 @@ repository = "https://github.com/Eagle941/mma"
 readme = "README.md"
 
 [profile.release]
-lto = "fat"
+lto = "fat" # link time optimization using using whole-program analysis
+codegen-units = 1 # optimization over all codebase ( better optimization, slower build )
+overflow-checks = true # Keep overflow checks in production builds.
+panic = "abort"
 opt-level = 3 # All optimisations
-debug = true # Added for testing in release mode. To be removed for production
+debug = true # Added for testing in release mode. TODO: Remove for production
 
 [workspace.dependencies]
+assert_approx_eq = "1.1.0"
+criterion = { version = "0.8.2", features = ["html_reports"] }
 crossbeam-channel = "0.5.15"
+log = "0.4.29"
+log-execution-time = "0.1.0"
+rstest = "0.26.1"
+tokio = { version = "1.50.0", features = ["full"] }

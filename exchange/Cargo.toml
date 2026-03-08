@@ -9,14 +9,25 @@ readme.workspace = true
 publish.workspace = true
 
 [dependencies]
-attohttpc = { version = "0.30.1", features = ["json"] }
+attohttpc = { version = "0.30.1", features = ["json"] } # Still used in info.rs. TODO: remove
 chrono = "0.4.43"
 crossbeam-channel.workspace = true
 hex = "0.4.3"
 hmac = "0.12.1"
+log.workspace = true
+log-execution-time.workspace = true
+reqwest = { version = "0.13", features = ["json"] }
 rust-bybit = "0.2.0"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["raw_value"] }
 sha2 = "0.10.9"
 strum = { version = "0.27.2", features = ["derive"] }
+tokio.workspace = true
 triple_buffer = "8.1.1"
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "order_benchmark"
+harness = false

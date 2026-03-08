@@ -1,6 +1,7 @@
 use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
+use log::warn;
 use triple_buffer::Input;
 
 use crate::{Level, OrderBook};
@@ -85,10 +86,10 @@ impl PublicWebSocket {
                 }
                 SpotPublicResponse::Op(res) => {
                     if !res.success {
-                        println!("{res:?}")
+                        warn!("{res:?}")
                     }
                 }
-                x => println!("SpotPublicResponse::{x:?} not implemented"),
+                x => warn!("SpotPublicResponse::{x:?} not implemented"),
             }
         };
 

@@ -1,9 +1,12 @@
-use std::{env, thread};
+use std::env;
 
-use attohttpc::Session;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
+use log::info;
+use log_execution_time::log_execution_time;
+use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::{Client, RequestBuilder};
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -32,13 +35,13 @@ pub struct OrderResponse<'a> {
     pub order_link_id: &'a str,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OrderHandler {
     base_url: String,
     api_key: String,
     api_secret: String,
     recv_window: u32,
-    session: Session,
+    session: Client,
 }
 impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
@@ -54,10 +57,18 @@ impl OrderHandler {
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may
         // fail if the transmission time is greater than your X-BAPI-RECV-WINDOW.
         let recv_window = 1000;
-        let mut session = Session::new();
-        session.header("X-BAPI-SIGN", &api_secret);
-        session.header("X-BAPI-API-KEY", &api_key);
-        session.header("X-BAPI-RECV-WINDOW", recv_window);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-BAPI-API-KEY", HeaderValue::from_str(&api_key).unwrap());
+        headers.insert(
+            "X-BAPI-RECV-WINDOW",
+            HeaderValue::from_str(&recv_window.to_string()).unwrap(),
+        );
+        let session = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .expect("Failed to build reqwest client");
+
         OrderHandler {
             base_url,
             api_key,
@@ -67,6 +78,7 @@ impl OrderHandler {
         }
     }
 
+    #[log_execution_time]
     pub fn amend_order(&self, order_builder: &OrderAmendedBuilder) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
@@ -94,80 +106,26 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
-        // TODO: use non-blocking HTTP request and avoid creating a new thread.
-        // TODO: add orderLinkId for optimisations
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
+        let order_link_id = order_builder.order_link_id;
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
-        thread::scope(|_| {
-            let res = self
-                .session
-                .post(url)
-                .header("X-BAPI-API-KEY", &self.api_key)
-                .header("X-BAPI-SIGN", signature)
-                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
-                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
-                .json(&body)
-                .unwrap()
-                .send();
-            match res {
-                Ok(x) => {
-                    if !x.is_success() {
-                        panic!("Failed order amend response. Status code {}", x.status());
-                    } else {
-                        let content = x.text().unwrap();
-                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
-                        if content.ret_code == 0 {
-                            // Do nothing
-                        } else if content.ret_code == 10002
-                            || content.ret_code == 170194
-                            || content.ret_code == 170193
-                            || content.ret_code == 10001
-                            || content.ret_code == 170213
-                        {
-                            // Timestamp for this request is outside of the
-                            // recvWindow.
-                            // NOTE: if the order request took too long to
-                            // arrive, just skip the
-                            // order and let the strategy send a new one in the
-                            // next cycle with
-                            // updated values.
-                            // Sell order price cannot be lower than %s.
-                            // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed
-                            // while submitting the
-                            // order. Wait for the next cycle to submit another
-                            // order at a different
-                            // price.
-                            // The order remains unchanged as the parameters
-                            // entered match the
-                            // existing ones.
-                            // NOTE: This error occurs
-                            // when two identical amend orders are issued at the
-                            // same time due to
-                            // the latency to receive the HTTP response.
-                            // Order does not exist.
-                            // NOTE: This error occurs when an order is filled
-                            // during the amend
-                            // request.
-                            println!(
-                                "Amend order error. {} Code: {}. Msg: {}",
-                                order_builder.order_link_id, content.ret_code, content.ret_msg
-                            );
-                        } else {
-                            panic!(
-                                "Failed order amend request. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
-                            );
-                        }
-                    }
-                }
-                Err(x) => {
-                    panic!("Failed to send order amend request {x}\n{body:#?}");
-                }
-            }
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
         });
     }
 
+    #[log_execution_time]
     pub fn submit_order(&self, order_builder: &OrderBuilder, order_link_id: u64) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
@@ -183,7 +141,8 @@ impl OrderHandler {
             "side": order_builder.side,
             "orderType": order_builder.order_type,
             "qty": order_builder.qty.to_string(),
-            "price": order_builder.price
+            "price": order_builder.price,
+            "timeInForce": "FOK" // Fill or Kill
         });
         let signature = Self::generate_post_signature(
             &time_ms,
@@ -193,65 +152,21 @@ impl OrderHandler {
             &self.api_secret,
         )
         .unwrap();
-        // println!("Order {:#?}", body);
-        // TODO: use non-blocking HTTP request and avoid creating a new thread.
-        // TODO: add orderLinkId for optimisations
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
-        thread::scope(|_| {
-            let res = self
-                .session
-                .post(url)
-                .header("X-BAPI-API-KEY", &self.api_key)
-                .header("X-BAPI-SIGN", signature)
-                .header("X-BAPI-TIMESTAMP", time_ms.to_string())
-                .header("X-BAPI-RECV-WINDOW", self.recv_window.to_string())
-                .json(&body)
-                .unwrap()
-                .send();
-            match res {
-                Ok(x) => {
-                    if !x.is_success() {
-                        panic!("Failed order response. Status code {}", x.status());
-                    } else {
-                        let content = x.text().unwrap();
-                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
-                        if content.ret_code == 0 {
-                            // Do nothing
-                        } else if content.ret_code == 10002
-                            || content.ret_code == 170194
-                            || content.ret_code == 170193
-                        {
-                            // Timestamp for this request is outside of the
-                            // recvWindow.
-                            // NOTE: if the order request took too long to
-                            // arrive, just skip the
-                            // order and let the strategy send a new one in the
-                            // next cycle with
-                            // updated values.
-                            // Sell order price cannot be lower than %s.
-                            // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed
-                            // while submitting the
-                            // order. Wait for the next cycle to submit another
-                            // order at a different
-                            // price.
-                            println!(
-                                "Submit order error. {} Code: {}. Msg: {}",
-                                order_link_id, content.ret_code, content.ret_msg
-                            );
-                        } else {
-                            panic!(
-                                "Failed order request. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
-                            );
-                        }
-                    }
-                }
-                Err(x) => {
-                    panic!("Failed to send order request {x}\n{body:#?}");
-                }
-            }
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
         });
     }
 
@@ -273,5 +188,65 @@ impl OrderHandler {
         let result = mac.finalize();
         let code_bytes = result.into_bytes();
         Ok(hex::encode(code_bytes))
+    }
+
+    async fn send_request(request: RequestBuilder, order_link_id: u64) {
+        let res = request.send().await;
+        match res {
+            Ok(x) => {
+                if !x.status().is_success() {
+                    panic!("Failed order response. Status code {}", x.status());
+                }
+
+                let raw_text = x.text().await.expect("Failed to read response text");
+                let content = serde_json::from_str::<CommonResponse>(&raw_text).unwrap();
+                // TODO: turn into match statement
+                if content.ret_code == 0 {
+                    // Do nothing
+                } else if content.ret_code == 10002
+                    || content.ret_code == 170194
+                    || content.ret_code == 170193
+                    || content.ret_code == 10001
+                    || content.ret_code == 170213
+                {
+                    // Timestamp for this request is outside of the
+                    // recvWindow.
+                    // NOTE: if the order request took too long to
+                    // arrive, just skip the
+                    // order and let the strategy send a new one in the
+                    // next cycle with
+                    // updated values.
+                    // Sell order price cannot be lower than %s.
+                    // Buy order price cannot be higher than %s.
+                    // NOTE: This error occurs when order book changed
+                    // while submitting the
+                    // order. Wait for the next cycle to submit another
+                    // order at a different
+                    // price.
+                    // The order remains unchanged as the parameters
+                    // entered match the
+                    // existing ones.
+                    // NOTE: This error occurs
+                    // when two identical amend orders are issued at the
+                    // same time due to the latency to receive the HTTP response.
+                    // Order does not exist.
+                    // NOTE: This error occurs when an order is filled
+                    // during the amend
+                    // request.
+                    info!(
+                        "Order error. {} Code: {}. Msg: {}",
+                        order_link_id, content.ret_code, content.ret_msg
+                    );
+                } else {
+                    panic!(
+                        "Failed order request. Code: {}. Msg: {}",
+                        content.ret_code, content.ret_msg
+                    );
+                }
+            }
+            Err(x) => {
+                panic!("Failed to send order request {x}");
+            }
+        }
     }
 }

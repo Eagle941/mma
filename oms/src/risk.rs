@@ -6,8 +6,15 @@ use slab::Slab;
 pub enum Outcome {
     NewOrder(OrderBuilder),
     AmendOrder(OrderAmendedBuilder),
-    Nothing,
+    DoNothing,
 }
+
+pub const MAKER_FEE: f64 = 0.0676; // %
+
+// NOTE: could be dynamic
+pub const MAX_INVENTORY: f64 = 500.0; // Quantity
+pub const MIN_INVENTORY: f64 = -500.0; // Quantity
+pub const NEUTRAL_INVENTORY_THOLD: f64 = 0.01; // Ratio (1%)
 
 // TODO: This file may be moved to a dedicated library
 pub struct RiskManager();
@@ -34,20 +41,31 @@ impl RiskManager {
         orders: &Slab<Order>,
         new_order: OrderBuilder,
         inventory: f64,
-        last_buy: Option<&Order>,
-        last_sell: Option<&Order>,
+        average_entry_price: f64,
     ) -> Outcome {
-        // NOTE: could be dynamic
-        const MAKER_FEE: f64 = 0.0676; // %
-        const MAX_INVENTORY: f64 = 500.0;
-        const MIN_INVENTORY: f64 = -500.0;
-
         if inventory >= MAX_INVENTORY && new_order.side == OrderSide::Buy {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
         }
 
         if inventory <= MIN_INVENTORY && new_order.side == OrderSide::Sell {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
+        }
+
+        let new_order_price = f64::from_str(new_order.price.as_str()).unwrap();
+        // When inventory is around 0+/-2%, ignore any limiting.
+        if inventory > MAX_INVENTORY * NEUTRAL_INVENTORY_THOLD && new_order.side == OrderSide::Sell
+        {
+            let minimum_sell_price = average_entry_price * (1.0 + MAKER_FEE * 2.0);
+            if new_order_price <= minimum_sell_price {
+                return Outcome::DoNothing;
+            }
+        } else if inventory < MIN_INVENTORY * NEUTRAL_INVENTORY_THOLD
+            && new_order.side == OrderSide::Buy
+        {
+            let maximum_buy_price = average_entry_price * (1.0 - MAKER_FEE * 2.0);
+            if new_order_price >= maximum_buy_price {
+                return Outcome::DoNothing;
+            }
         }
 
         // This is a very simple risk management. Don't have more than two orders
@@ -58,7 +76,6 @@ impl RiskManager {
             return Outcome::NewOrder(new_order);
         };
 
-        let new_order_price = f64::from_str(new_order.price.as_str()).unwrap();
         let amended_order = OrderAmendedBuilder {
             symbol: new_order.symbol,
             order_link_id: existing_order.order_link_id,
@@ -70,27 +87,9 @@ impl RiskManager {
         };
 
         if !amended_order.new_price && !amended_order.new_qty {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
         }
 
-        match new_order.side {
-            OrderSide::Buy => {
-                let Some(last_sell) = last_sell else {
-                    return Outcome::AmendOrder(amended_order);
-                };
-                if new_order_price >= -last_sell.filled_price * (MAKER_FEE * 2.0 / 100.0 - 1.0) {
-                    return Outcome::Nothing;
-                }
-            }
-            OrderSide::Sell => {
-                let Some(last_buy) = last_buy else {
-                    return Outcome::AmendOrder(amended_order);
-                };
-                if new_order_price <= last_buy.filled_price * (MAKER_FEE * 2.0 / 100.0 + 1.0) {
-                    return Outcome::Nothing;
-                }
-            }
-        };
         Outcome::AmendOrder(amended_order)
     }
 }
