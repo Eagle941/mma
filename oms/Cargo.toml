@@ -14,3 +14,7 @@ exchange = { path = "../exchange" }
 log.workspace = true
 rustc-hash = "2.1.1"
 slab = "0.4.12"
+
+[dev-dependencies]
+assert_approx_eq.workspace = true
+rstest.workspace = true

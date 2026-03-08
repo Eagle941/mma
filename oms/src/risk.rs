@@ -6,7 +6,7 @@ use slab::Slab;
 pub enum Outcome {
     NewOrder(OrderBuilder),
     AmendOrder(OrderAmendedBuilder),
-    Nothing,
+    DoNothing,
 }
 
 pub const MAKER_FEE: f64 = 0.0676; // %
@@ -44,11 +44,11 @@ impl RiskManager {
         average_entry_price: f64,
     ) -> Outcome {
         if inventory >= MAX_INVENTORY && new_order.side == OrderSide::Buy {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
         }
 
         if inventory <= MIN_INVENTORY && new_order.side == OrderSide::Sell {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
         }
 
         let new_order_price = f64::from_str(new_order.price.as_str()).unwrap();
@@ -57,14 +57,14 @@ impl RiskManager {
         {
             let minimum_sell_price = average_entry_price * (1.0 + MAKER_FEE * 2.0);
             if new_order_price <= minimum_sell_price {
-                return Outcome::Nothing;
+                return Outcome::DoNothing;
             }
         } else if inventory < MIN_INVENTORY * NEUTRAL_INVENTORY_THOLD
             && new_order.side == OrderSide::Buy
         {
             let maximum_buy_price = average_entry_price * (1.0 - MAKER_FEE * 2.0);
             if new_order_price >= maximum_buy_price {
-                return Outcome::Nothing;
+                return Outcome::DoNothing;
             }
         }
 
@@ -87,7 +87,7 @@ impl RiskManager {
         };
 
         if !amended_order.new_price && !amended_order.new_qty {
-            return Outcome::Nothing;
+            return Outcome::DoNothing;
         }
 
         Outcome::AmendOrder(amended_order)
