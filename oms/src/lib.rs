@@ -119,7 +119,7 @@ impl OrderManagementSystem {
             // If we didn't cross zero avg_entry_price stays the same!
         }
 
-        return (avg_entry_price, new_inventory);
+        (avg_entry_price, new_inventory)
     }
 
     /// This function is responsible for receiving the order commands from the
