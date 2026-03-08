@@ -26,6 +26,9 @@ jobs:
             - name: Build
               run: cargo build --locked
             - name: Run tests
+              env:
+                  # rstest doesn't handle the flag cpu-native
+                  RUSTFLAGS: ""
               run: |
                   id -a
                   sudo apt-get -y install build-essential pkg-config libssl-dev
