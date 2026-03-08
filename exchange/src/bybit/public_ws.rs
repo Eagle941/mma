@@ -1,6 +1,6 @@
+use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::OrderbookDepth;
-use bybit::WebSocketApiClient;
 use log::warn;
 use triple_buffer::Input;
 

@@ -3,7 +3,7 @@ use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use exchange::bybit::order::OrderHandler;
 use exchange::{OrderBuilder, OrderSide, OrderType};
 
