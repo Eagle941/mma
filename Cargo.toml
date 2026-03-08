@@ -28,4 +28,5 @@ debug = true # Added for testing in release mode. TODO: Remove for production
 
 [workspace.dependencies]
 crossbeam-channel = "0.5.15"
-log = { version = "0.4.29" } # TODO: Change release level in production
+log = "0.4.29"
+log-execution-time = "0.1.0"

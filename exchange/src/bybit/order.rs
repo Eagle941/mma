@@ -5,6 +5,7 @@ use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
 use log::info;
+use log_execution_time::log_execution_time;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -67,6 +68,7 @@ impl OrderHandler {
         }
     }
 
+    #[log_execution_time]
     pub fn amend_order(&self, order_builder: &OrderAmendedBuilder) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
@@ -167,6 +169,7 @@ impl OrderHandler {
         });
     }
 
+    #[log_execution_time]
     pub fn submit_order(&self, order_builder: &OrderBuilder, order_link_id: u64) {
         // TODO: identify more efficient methods than `serde`
         // TODO: add support for all additional exchange non-mandatory parameters
@@ -216,7 +219,6 @@ impl OrderHandler {
                         let content: CommonResponse = serde_json::from_str(&content).unwrap();
                         if content.ret_code == 0 {
                             // Do nothing
-                            info!("order/create request completed")
                         } else if content.ret_code == 10002
                             || content.ret_code == 170194
                             || content.ret_code == 170193
