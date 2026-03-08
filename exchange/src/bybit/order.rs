@@ -1,6 +1,7 @@
 use std::{env, thread};
 
-use attohttpc::Session;
+use attohttpc::body::Body;
+use attohttpc::{RequestBuilder, Session};
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
@@ -109,63 +110,7 @@ impl OrderHandler {
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
         thread::spawn(move || {
-            let res = request.send();
-            match res {
-                Ok(x) => {
-                    if !x.is_success() {
-                        panic!("Failed order amend response. Status code {}", x.status());
-                    } else {
-                        let content = x.text().unwrap();
-                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
-                        if content.ret_code == 0 {
-                            // Do nothing
-                        } else if content.ret_code == 10002
-                            || content.ret_code == 170194
-                            || content.ret_code == 170193
-                            || content.ret_code == 10001
-                            || content.ret_code == 170213
-                        {
-                            // Timestamp for this request is outside of the
-                            // recvWindow.
-                            // NOTE: if the order request took too long to
-                            // arrive, just skip the
-                            // order and let the strategy send a new one in the
-                            // next cycle with
-                            // updated values.
-                            // Sell order price cannot be lower than %s.
-                            // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed
-                            // while submitting the
-                            // order. Wait for the next cycle to submit another
-                            // order at a different
-                            // price.
-                            // The order remains unchanged as the parameters
-                            // entered match the
-                            // existing ones.
-                            // NOTE: This error occurs
-                            // when two identical amend orders are issued at the
-                            // same time due to
-                            // the latency to receive the HTTP response.
-                            // Order does not exist.
-                            // NOTE: This error occurs when an order is filled
-                            // during the amend
-                            // request.
-                            info!(
-                                "Amend order error. {} Code: {}. Msg: {}",
-                                order_link_id, content.ret_code, content.ret_msg
-                            );
-                        } else {
-                            panic!(
-                                "Failed order amend request. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
-                            );
-                        }
-                    }
-                }
-                Err(x) => {
-                    panic!("Failed to send order amend request {x}\n{body:#?}");
-                }
-            }
+            Self::send_request(request, order_link_id);
         });
     }
 
@@ -209,53 +154,11 @@ impl OrderHandler {
         // TODO: move from HTTP request to WebSocket
         // TODO: find a proper way to deal with failed orders
         thread::spawn(move || {
-            let res = request.send();
-            match res {
-                Ok(x) => {
-                    if !x.is_success() {
-                        panic!("Failed order response. Status code {}", x.status());
-                    } else {
-                        let content = x.text().unwrap();
-                        let content: CommonResponse = serde_json::from_str(&content).unwrap();
-                        if content.ret_code == 0 {
-                            // Do nothing
-                        } else if content.ret_code == 10002
-                            || content.ret_code == 170194
-                            || content.ret_code == 170193
-                        {
-                            // Timestamp for this request is outside of the
-                            // recvWindow.
-                            // NOTE: if the order request took too long to
-                            // arrive, just skip the
-                            // order and let the strategy send a new one in the
-                            // next cycle with
-                            // updated values.
-                            // Sell order price cannot be lower than %s.
-                            // Buy order price cannot be higher than %s.
-                            // NOTE: This error occurs when order book changed
-                            // while submitting the
-                            // order. Wait for the next cycle to submit another
-                            // order at a different
-                            // price.
-                            info!(
-                                "Submit order error. {} Code: {}. Msg: {}",
-                                order_link_id, content.ret_code, content.ret_msg
-                            );
-                        } else {
-                            panic!(
-                                "Failed order request. Code: {}. Msg: {}",
-                                content.ret_code, content.ret_msg
-                            );
-                        }
-                    }
-                }
-                Err(x) => {
-                    panic!("Failed to send order request {x}\n{body:#?}");
-                }
-            }
+            Self::send_request(request, order_link_id);
         });
     }
 
+    #[log_execution_time]
     fn generate_post_signature(
         timestamp: &str,
         api_key: &str,
@@ -274,5 +177,65 @@ impl OrderHandler {
         let result = mac.finalize();
         let code_bytes = result.into_bytes();
         Ok(hex::encode(code_bytes))
+    }
+
+    #[log_execution_time]
+    fn send_request<B: Body>(request: RequestBuilder<B>, order_link_id: u64) {
+        let res = request.send();
+        match res {
+            Ok(x) => {
+                if !x.is_success() {
+                    panic!("Failed order amend response. Status code {}", x.status());
+                } else {
+                    let content = x.text().unwrap();
+                    let content: CommonResponse = serde_json::from_str(&content).unwrap();
+                    if content.ret_code == 0 {
+                        // Do nothing
+                    } else if content.ret_code == 10002
+                        || content.ret_code == 170194
+                        || content.ret_code == 170193
+                        || content.ret_code == 10001
+                        || content.ret_code == 170213
+                    {
+                        // Timestamp for this request is outside of the
+                        // recvWindow.
+                        // NOTE: if the order request took too long to
+                        // arrive, just skip the
+                        // order and let the strategy send a new one in the
+                        // next cycle with
+                        // updated values.
+                        // Sell order price cannot be lower than %s.
+                        // Buy order price cannot be higher than %s.
+                        // NOTE: This error occurs when order book changed
+                        // while submitting the
+                        // order. Wait for the next cycle to submit another
+                        // order at a different
+                        // price.
+                        // The order remains unchanged as the parameters
+                        // entered match the
+                        // existing ones.
+                        // NOTE: This error occurs
+                        // when two identical amend orders are issued at the
+                        // same time due to the latency to receive the HTTP response.
+                        // Order does not exist.
+                        // NOTE: This error occurs when an order is filled
+                        // during the amend
+                        // request.
+                        info!(
+                            "Order error. {} Code: {}. Msg: {}",
+                            order_link_id, content.ret_code, content.ret_msg
+                        );
+                    } else {
+                        panic!(
+                            "Failed order request. Code: {}. Msg: {}",
+                            content.ret_code, content.ret_msg
+                        );
+                    }
+                }
+            }
+            Err(x) => {
+                panic!("Failed to send order request {x}");
+            }
+        }
     }
 }
