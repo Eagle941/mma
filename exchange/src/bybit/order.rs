@@ -1,4 +1,5 @@
 use std::env;
+use std::str::FromStr;
 
 use chrono::Utc;
 use hex;
@@ -237,12 +238,17 @@ impl OrderHandler {
                     panic!("Failed order response. Status code {}", x.status());
                 }
                 let url = x.url().clone();
-                // NOTE: It's fair to assume the limit is less than 255.
-                // The current handling of zero requests left is very simple because HTTP
+                // NOTE: The current handling of zero requests left is very simple because HTTP
                 // requests will be replaced by WebSocket orders and the test strategy will run
                 // at low iteration rate to guarantee safety.
-                let api_limit_status =
-                    x.headers().get("x-bapi-limit-status").unwrap().as_bytes()[0];
+                let api_limit_status: u8 = (u8::from_str(
+                    x.headers()
+                        .get("x-bapi-limit-status")
+                        .unwrap_or(&HeaderValue::from_str("10").unwrap())
+                        .to_str()
+                        .unwrap(),
+                ))
+                .unwrap();
                 if api_limit_status == 0 {
                     panic!("Zero requests left for {url}");
                 } else if api_limit_status <= 2 {
