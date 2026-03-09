@@ -3,7 +3,7 @@ use std::env;
 use chrono::Utc;
 use hex;
 use hmac::{Hmac, Mac};
-use log::info;
+use log::{info, warn};
 use log_execution_time::log_execution_time;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, RequestBuilder};
@@ -40,7 +40,7 @@ pub struct OrderHandler {
     base_url: String,
     api_key: String,
     api_secret: String,
-    recv_window: u32,
+    recv_window: String,
     session: Client,
 }
 impl OrderHandler {
@@ -56,7 +56,7 @@ impl OrderHandler {
         // attacks.
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may
         // fail if the transmission time is greater than your X-BAPI-RECV-WINDOW.
-        let recv_window = 1000;
+        let recv_window = 1000.to_string();
 
         let mut headers = HeaderMap::new();
         headers.insert("X-BAPI-API-KEY", HeaderValue::from_str(&api_key).unwrap());
@@ -76,6 +76,45 @@ impl OrderHandler {
             recv_window,
             session,
         }
+    }
+
+    // TODO: introduce kill-switch when bot crashes or it's killed with ^c
+    #[log_execution_time]
+    pub fn cancel_all(&self) {
+        // TODO: identify more efficient methods than `serde`
+        // TODO: add support for all additional exchange non-mandatory parameters
+        let url = format!("{}/v5/order/cancel-all", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        let body = json!({
+            "category": "spot",
+        });
+        let signature = Self::generate_post_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
+        // NOTE: it is assumed this request won't fail
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            // NOTE: error 999 is used because an order id is required, but there is no
+            // order id for cancel-all. I am not using an Option type to reduce the
+            // overhead.
+            Self::send_request(request, 999).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `cancel_all`: {:.2?}", duration);
+        });
     }
 
     #[log_execution_time]
@@ -101,7 +140,7 @@ impl OrderHandler {
         let signature = Self::generate_post_signature(
             &time_ms,
             &self.api_key,
-            &self.recv_window.to_string(),
+            &self.recv_window,
             &body.to_string(),
             &self.api_secret,
         )
@@ -147,7 +186,7 @@ impl OrderHandler {
         let signature = Self::generate_post_signature(
             &time_ms,
             &self.api_key,
-            &self.recv_window.to_string(),
+            &self.recv_window,
             &body.to_string(),
             &self.api_secret,
         )
@@ -197,51 +236,62 @@ impl OrderHandler {
                 if !x.status().is_success() {
                     panic!("Failed order response. Status code {}", x.status());
                 }
-
+                let url = x.url().clone();
+                // NOTE: It's fair to assume the limit is less than 255.
+                // The current handling of zero requests left is very simple because HTTP
+                // requests will be replaced by WebSocket orders and the test strategy will run
+                // at low iteration rate to guarantee safety.
+                let api_limit_status =
+                    x.headers().get("x-bapi-limit-status").unwrap().as_bytes()[0];
+                if api_limit_status == 0 {
+                    panic!("Zero requests left for {url}");
+                } else if api_limit_status <= 2 {
+                    warn!("Remaining {api_limit_status} requests for {url}");
+                }
                 let raw_text = x.text().await.expect("Failed to read response text");
                 let content = serde_json::from_str::<CommonResponse>(&raw_text).unwrap();
-                // TODO: turn into match statement
-                if content.ret_code == 0 {
-                    // Do nothing
-                } else if content.ret_code == 10002
-                    || content.ret_code == 170194
-                    || content.ret_code == 170193
-                    || content.ret_code == 10001
-                    || content.ret_code == 170213
-                {
-                    // Timestamp for this request is outside of the
-                    // recvWindow.
-                    // NOTE: if the order request took too long to
-                    // arrive, just skip the
-                    // order and let the strategy send a new one in the
-                    // next cycle with
-                    // updated values.
-                    // Sell order price cannot be lower than %s.
-                    // Buy order price cannot be higher than %s.
-                    // NOTE: This error occurs when order book changed
-                    // while submitting the
-                    // order. Wait for the next cycle to submit another
-                    // order at a different
-                    // price.
-                    // The order remains unchanged as the parameters
-                    // entered match the
-                    // existing ones.
-                    // NOTE: This error occurs
-                    // when two identical amend orders are issued at the
-                    // same time due to the latency to receive the HTTP response.
-                    // Order does not exist.
-                    // NOTE: This error occurs when an order is filled
-                    // during the amend
-                    // request.
-                    info!(
-                        "Order error. {} Code: {}. Msg: {}",
-                        order_link_id, content.ret_code, content.ret_msg
-                    );
-                } else {
-                    panic!(
-                        "Failed order request. Code: {}. Msg: {}",
+                match content.ret_code {
+                    0 => (),
+                    10001 | 10002 | 170194 | 170193 | 170213 => {
+                        // Timestamp for this request is outside of the
+                        // recvWindow.
+                        // NOTE: if the order request took too long to
+                        // arrive, just skip the
+                        // order and let the strategy send a new one in the
+                        // next cycle with
+                        // updated values.
+                        // Sell order price cannot be lower than %s.
+                        // Buy order price cannot be higher than %s.
+                        // NOTE: This error occurs when order book changed
+                        // while submitting the
+                        // order. Wait for the next cycle to submit another
+                        // order at a different
+                        // price.
+                        // The order remains unchanged as the parameters
+                        // entered match the
+                        // existing ones.
+                        // NOTE: This error occurs
+                        // when two identical amend orders are issued at the
+                        // same time due to the latency to receive the HTTP response.
+                        // Order does not exist.
+                        // NOTE: This error occurs when an order is filled
+                        // during the amend
+                        // request.
+                        info!(
+                            "{url} error. {} Code: {}. Msg: {}",
+                            order_link_id, content.ret_code, content.ret_msg
+                        );
+                    }
+                    10016 => {
+                        // internal server error
+                        // This is triggered when the request rate limit is
+                        // exceeded
+                        panic!("{url} Internal server error.")
+                    }
+                    _ => panic!(
+                        "Failed {url} request. Code: {}. Msg: {}",
                         content.ret_code, content.ret_msg
-                    );
+                    ),
                 }
             }
             Err(x) => {
