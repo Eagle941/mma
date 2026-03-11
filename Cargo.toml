@@ -30,6 +30,7 @@ debug = true # Added for testing in release mode. TODO: Remove for production
 assert_approx_eq = "1.1.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 crossbeam-channel = "0.5.15"
+crossbeam-queue = "0.3.12"
 log = "0.4.29"
 log-execution-time = "0.1.0"
 rstest = "0.26.1"

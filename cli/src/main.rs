@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
@@ -63,6 +65,12 @@ fn run(_args: Args) -> anyhow::Result<()> {
         unbounded();
     let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
         unbounded();
+    // NOTE: The queue has a length of 1 because only the most recent value of
+    // inventory is useful. If the queue is full, the value is replaced.
+    let inventory_queue: ArrayQueue<f64> = ArrayQueue::new(1);
+    let inventory_queue = Arc::new(inventory_queue);
+    let from_oms = Arc::clone(&inventory_queue);
+    let to_strategy = Arc::clone(&inventory_queue);
 
     let private_ws_thread = thread::Builder::new()
         .name("private_ws_thread".to_string())
@@ -74,7 +82,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let strategy_thread = thread::Builder::new()
         .name("strategy_thread".to_string())
         .spawn(move || {
-            let simple_strategy = SimpleStrategy::factory(order_builder_to_oms);
+            let mut simple_strategy = SimpleStrategy::factory(order_builder_to_oms, from_oms);
             loop {
                 // NOTE: strategy is executed at around 1Hz for learning
                 let order_book = consumer.read();
@@ -88,7 +96,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
         .spawn(move || {
             let guard = runtime_handle.enter();
 
-            let mut oms = OrderManagementSystem::new(from_strategy, from_order_handler);
+            let mut oms =
+                OrderManagementSystem::new(from_strategy, from_order_handler, to_strategy);
             oms.cycle();
 
             drop(guard)

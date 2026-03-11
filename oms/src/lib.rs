@@ -1,8 +1,10 @@
 use std::f64;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::Receiver;
+use crossbeam_queue::ArrayQueue;
 use exchange::bybit::order::OrderHandler;
 use exchange::{Order, OrderBuilder, OrderExecution, OrderMessages, OrderSide};
 use log::{info, warn};
@@ -17,6 +19,7 @@ pub mod risk;
 pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
     from_order_handler: Receiver<OrderMessages>,
+    to_strategy: Arc<ArrayQueue<f64>>,
     order_handler: OrderHandler,
     // TODO: the Slab will grow infinitely. It needs to be pruned when orders are completed.
     orders: Slab<Order>,
@@ -34,6 +37,7 @@ impl OrderManagementSystem {
     pub fn new(
         from_strategy: Receiver<OrderBuilder>,
         from_order_handler: Receiver<OrderMessages>,
+        to_strategy: Arc<ArrayQueue<f64>>,
     ) -> OrderManagementSystem {
         let start_time_micros = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -43,6 +47,7 @@ impl OrderManagementSystem {
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
+            to_strategy,
             order_handler: OrderHandler::new(),
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
@@ -192,6 +197,7 @@ impl OrderManagementSystem {
                         &order,
                         old_order.side,
                     );
+                    self.to_strategy.force_push(self.inventory);
                 };
             }
         };

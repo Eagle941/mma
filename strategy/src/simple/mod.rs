@@ -1,29 +1,40 @@
 use std::env;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use crossbeam_channel::Sender;
+use crossbeam_queue::ArrayQueue;
 use exchange::bybit::info::Info;
 use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 use log::{info, warn};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SimpleStrategy {
     size: f64,
     instrument_info: Info,
-    oms_channel: Sender<OrderBuilder>,
+    to_oms: Sender<OrderBuilder>,
+    from_oms: Arc<ArrayQueue<f64>>,
+    inventory: f64,
 }
 impl SimpleStrategy {
-    pub fn new(oms_channel: Sender<OrderBuilder>, size: f64, symbol: &str) -> SimpleStrategy {
+    pub fn new(
+        to_oms: Sender<OrderBuilder>,
+        from_oms: Arc<ArrayQueue<f64>>,
+        size: f64,
+        symbol: &str,
+    ) -> SimpleStrategy {
         let instrument_info = Info::new(symbol.to_string());
         println!("{instrument_info:#?}");
         SimpleStrategy {
-            oms_channel,
+            to_oms,
+            from_oms,
             size,
             instrument_info,
+            inventory: 0.0,
         }
     }
 
-    pub fn factory(oms_channel: Sender<OrderBuilder>) -> SimpleStrategy {
+    pub fn factory(to_oms: Sender<OrderBuilder>, from_oms: Arc<ArrayQueue<f64>>) -> SimpleStrategy {
         let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
 
         // TODO: calculate minimum order size from the `Info` struct.
@@ -31,7 +42,7 @@ impl SimpleStrategy {
             env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
         let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
 
-        SimpleStrategy::new(oms_channel, size, symbol.as_str())
+        SimpleStrategy::new(to_oms, from_oms, size, symbol.as_str())
     }
 
     // fn calculate_profits(&self, bid_price: f64, bid_qty: f64, ask_price: f64,
@@ -47,11 +58,13 @@ impl SimpleStrategy {
     // 100.0);     gross_profit - buy_fees - sell_fees - borrow_fees
     // }
 
-    pub fn execute(&self, order_book: &OrderBook) {
+    pub fn execute(&mut self, order_book: &OrderBook) {
         if order_book.bids.is_empty() || order_book.asks.is_empty() {
             warn!("Empty book");
             return;
         }
+
+        self.inventory = self.from_oms.pop().unwrap_or(self.inventory);
 
         let first_bid = order_book.bids.first().unwrap();
         // let last_bid = order_book.bids.last().unwrap();
@@ -93,7 +106,7 @@ impl SimpleStrategy {
             price: format!("{bid_price:.*}", decimal_digits),
         };
         info!("Sending buy order");
-        self.oms_channel.send(bid_order).unwrap();
+        self.to_oms.send(bid_order).unwrap();
 
         let ask_order = OrderBuilder {
             symbol: self.instrument_info.symbol.clone(),
@@ -103,6 +116,6 @@ impl SimpleStrategy {
             price: format!("{ask_price:.*}", decimal_digits),
         };
         info!("Sending sell order");
-        self.oms_channel.send(ask_order).unwrap();
+        self.to_oms.send(ask_order).unwrap();
     }
 }
