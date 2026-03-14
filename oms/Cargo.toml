@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 crossbeam-channel.workspace = true
+crossbeam-queue.workspace = true
 exchange = { path = "../exchange" }
 log.workspace = true
 rustc-hash = "2.1.1"
