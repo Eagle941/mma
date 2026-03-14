@@ -52,6 +52,16 @@ impl OrderManagementSystem {
             .expect("System clock went backwards!")
             .as_micros() as u64;
 
+        // NOTE: initialising average entry price to infinity when the inventory is
+        // negative to make the risk manager work correctly. When the entry price is
+        // infinite, it gives the illusion to the risk manager that the coin has been
+        // sold at a very high price, therefore any buy price will give profits.
+        let avg_entry_price = if inventory.is_sign_positive() {
+            0.0
+        } else {
+            f64::INFINITY
+        };
+
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -60,7 +70,7 @@ impl OrderManagementSystem {
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
             inventory,
-            avg_entry_price: 0.0,
+            avg_entry_price,
             //
             id_map: FxHashMap::default(),
             id_generator: AtomicU64::new(start_time_micros),
