@@ -5,6 +5,7 @@ use std::{env, f64};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
+use exchange::bybit::market::Trades;
 use exchange::bybit::order::OrderHandler;
 use exchange::bybit::wallet::Wallet;
 use exchange::{Order, OrderBuilder, OrderExecution, OrderMessages, OrderSide};
@@ -52,15 +53,7 @@ impl OrderManagementSystem {
             .expect("System clock went backwards!")
             .as_micros() as u64;
 
-        // NOTE: initialising average entry price to infinity when the inventory is
-        // negative to make the risk manager work correctly. When the entry price is
-        // infinite, it gives the illusion to the risk manager that the coin has been
-        // sold at a very high price, therefore any buy price will give profits.
-        let avg_entry_price = if inventory.is_sign_positive() {
-            0.0
-        } else {
-            f64::INFINITY
-        };
+        let avg_entry_price = Trades::factory().price;
 
         OrderManagementSystem {
             from_strategy,
@@ -220,7 +213,10 @@ impl OrderManagementSystem {
             }
         };
 
-        info!("Inventory {:.3}", self.inventory);
+        info!(
+            "Inventory {:.3} | Avg price {:.3}",
+            self.inventory, self.avg_entry_price
+        );
     }
 }
 

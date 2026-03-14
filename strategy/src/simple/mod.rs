@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crossbeam_channel::Sender;
 use crossbeam_queue::ArrayQueue;
-use exchange::bybit::info::Info;
+use exchange::bybit::market::Info;
 use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
 use log::{info, warn};
 
