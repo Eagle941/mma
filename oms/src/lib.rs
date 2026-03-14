@@ -1,6 +1,6 @@
 use std::f64;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::Receiver;
@@ -103,7 +103,7 @@ impl OrderManagementSystem {
             OrderSide::Sell => inventory - execution_update.qty,
         };
 
-        if inventory.abs() < 1.0 {
+        if inventory.abs() < 1e-8 {
             return (execution_update.price, new_inventory);
         } else if (inventory > 0.0 && order_side == OrderSide::Buy)
             || (inventory < 0.0 && order_side == OrderSide::Sell)
@@ -111,7 +111,7 @@ impl OrderManagementSystem {
             let total_value = (inventory.abs() * avg_entry_price)
                 + (execution_update.qty * execution_update.price);
             return (total_value / new_inventory.abs(), new_inventory);
-        } else if new_inventory.abs() < 1.0 {
+        } else if new_inventory.abs() < 1e-8 {
             return (0.0, new_inventory);
         } else {
             // NOTE: no need to worry about +/-0.0 because it is check in the first case.
