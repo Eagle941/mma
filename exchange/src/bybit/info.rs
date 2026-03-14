@@ -30,6 +30,7 @@ impl Info {
             decimal_places: 0,
         };
         info.get_info();
+        log::info!("{info:#?}");
         info
     }
 
@@ -38,7 +39,7 @@ impl Info {
         Self::new(symbol)
     }
 
-    pub fn get_info(&mut self) {
+    fn get_info(&mut self) {
         let url = format!(
             "{}/v5/market/instruments-info?category=spot&symbol={}",
             self.base_url, self.symbol

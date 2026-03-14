@@ -24,7 +24,6 @@ impl SimpleStrategy {
         symbol: &str,
     ) -> SimpleStrategy {
         let instrument_info = Info::new(symbol.to_string());
-        println!("{instrument_info:#?}");
         SimpleStrategy {
             to_oms,
             from_oms,

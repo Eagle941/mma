@@ -2,8 +2,6 @@ use std::env;
 use std::str::FromStr;
 
 use chrono::Utc;
-use hex;
-use hmac::{Hmac, Mac};
 use log::{info, warn};
 use log_execution_time::log_execution_time;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -11,11 +9,9 @@ use reqwest::{Client, RequestBuilder};
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
-use sha2::Sha256;
 
+use crate::bybit::utils::generate_signature;
 use crate::{OrderAmendedBuilder, OrderBuilder};
-
-type HmacSha256 = Hmac<Sha256>;
 
 // TODO: Add automatic casting of `result` to various struct types like in bybit
 // library.
@@ -90,7 +86,7 @@ impl OrderHandler {
         let body = json!({
             "category": "spot",
         });
-        let signature = Self::generate_post_signature(
+        let signature = generate_signature(
             &time_ms,
             &self.api_key,
             &self.recv_window,
@@ -138,7 +134,7 @@ impl OrderHandler {
         if order_builder.new_price {
             body["price"] = json!(order_builder.price);
         }
-        let signature = Self::generate_post_signature(
+        let signature = generate_signature(
             &time_ms,
             &self.api_key,
             &self.recv_window,
@@ -184,7 +180,7 @@ impl OrderHandler {
             "price": order_builder.price,
             "timeInForce": "FOK" // Fill or Kill
         });
-        let signature = Self::generate_post_signature(
+        let signature = generate_signature(
             &time_ms,
             &self.api_key,
             &self.recv_window,
@@ -208,26 +204,6 @@ impl OrderHandler {
             let duration = start.elapsed();
             log::info!("Execution time of `send_request`: {:.2?}", duration);
         });
-    }
-
-    fn generate_post_signature(
-        timestamp: &str,
-        api_key: &str,
-        recv_window: &str,
-        params: &str,
-        api_secret: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        // TODO: optimise signature generation
-        let mut mac = HmacSha256::new_from_slice(api_secret.as_bytes())
-            .expect("HMAC can take key of any size");
-        mac.update(timestamp.as_bytes());
-        mac.update(api_key.as_bytes());
-        mac.update(recv_window.as_bytes());
-        mac.update(params.as_bytes());
-
-        let result = mac.finalize();
-        let code_bytes = result.into_bytes();
-        Ok(hex::encode(code_bytes))
     }
 
     async fn send_request(request: RequestBuilder, order_link_id: u64) {
