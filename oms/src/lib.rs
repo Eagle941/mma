@@ -1,11 +1,12 @@
-use std::f64;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, f64};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
 use exchange::bybit::order::OrderHandler;
+use exchange::bybit::wallet::Wallet;
 use exchange::{Order, OrderBuilder, OrderExecution, OrderMessages, OrderSide};
 use log::{info, warn};
 use rustc_hash::FxHashMap;
@@ -39,6 +40,13 @@ impl OrderManagementSystem {
         from_order_handler: Receiver<OrderMessages>,
         to_strategy: Arc<ArrayQueue<f64>>,
     ) -> OrderManagementSystem {
+        let wallet = Wallet::new();
+        // TODO: infer the coin from the `base_coin` field of instrument info.
+        let coin = env::var("MMA_COIN").expect("MMA_COIN env variable must not be blank.");
+        let inventory = wallet.coins.get(&coin).unwrap().to_owned();
+        // NOTE: pushing to recover strategy with the correct inventory
+        to_strategy.force_push(inventory);
+
         let start_time_micros = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("System clock went backwards!")
@@ -51,7 +59,7 @@ impl OrderManagementSystem {
             order_handler: OrderHandler::new(),
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
-            inventory: 0.0,
+            inventory,
             avg_entry_price: 0.0,
             //
             id_map: FxHashMap::default(),

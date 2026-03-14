@@ -23,13 +23,13 @@ impl SimpleStrategy {
         size: f64,
         symbol: &str,
     ) -> SimpleStrategy {
-        let instrument_info = Info::new(symbol.to_string());
+        let inventory = from_oms.pop().unwrap_or(0.0);
         SimpleStrategy {
             to_oms,
             from_oms,
             size,
-            instrument_info,
-            inventory: 0.0,
+            instrument_info: Info::new(symbol.to_string()),
+            inventory,
         }
     }
 
