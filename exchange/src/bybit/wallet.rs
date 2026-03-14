@@ -81,7 +81,7 @@ impl Wallet {
                             for coin in s["coin"].as_array().unwrap() {
                                 let name = coin["coin"].as_str().unwrap().to_string();
                                 let balance =
-                                    f64::from_str(coin["walletBalance"].as_str().unwrap()).unwrap();
+                                    f64::from_str(coin["equity"].as_str().unwrap()).unwrap();
                                 self.coins.insert(name, balance);
                             }
                         }
