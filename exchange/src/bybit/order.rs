@@ -177,7 +177,9 @@ impl OrderHandler {
             "orderType": order_builder.order_type,
             "qty": order_builder.qty.to_string(),
             "price": order_builder.price,
-            "timeInForce": "FOK" // Fill or Kill
+            "timeInForce": "PostOnly",
+            "smpType": "CancelBoth",
+            "marketUnit": "baseCoin"
         });
         let signature = generate_signature(
             &time_ms,
