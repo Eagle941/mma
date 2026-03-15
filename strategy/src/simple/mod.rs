@@ -58,6 +58,9 @@ impl SimpleStrategy {
     // }
 
     pub fn execute(&mut self, order_book: &OrderBook) {
+        const BASE_SPREAD: f64 = 2.0;
+        const SKEW_FACTOR: f64 = 0.01;
+
         if order_book.bids.is_empty() || order_book.asks.is_empty() {
             warn!("Empty book");
             return;
@@ -87,8 +90,20 @@ impl SimpleStrategy {
 
         let precision = self.instrument_info.tick_size;
         let mid_price = (first_bid.price + first_ask.price) / 2.0;
-        let bid_price = mid_price - precision * 2.0;
-        let ask_price = mid_price + precision * 2.0;
+
+        let price_shift = self.inventory * SKEW_FACTOR * precision;
+        let reservation_price = mid_price - price_shift;
+
+        let mut bid_price = reservation_price - (BASE_SPREAD * precision);
+        let mut ask_price = reservation_price + (BASE_SPREAD * precision);
+
+        if bid_price >= ask_price {
+            if self.inventory.is_sign_positive() {
+                bid_price = ask_price - precision;
+            } else {
+                ask_price = bid_price + precision;
+            }
+        }
 
         // let profits = self.calculate_profits(bid_price, self.size, ask_price,
         // self.size); println!("Expected {profits:.*} USDT",
