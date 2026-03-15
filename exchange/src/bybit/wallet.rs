@@ -18,6 +18,8 @@ pub struct Wallet {
     pub coins: HashMap<String, f64>,
 }
 impl Wallet {
+    // NOTE: The default implementation doesn't have any sense for this struct.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // TODO: add option to switch between testnet and production.
         let base_url = "https://api-testnet.bybit.com".to_string();
@@ -53,7 +55,7 @@ impl Wallet {
             &time_ms,
             &self.api_key,
             &self.recv_window,
-            &query,
+            query,
             &self.api_secret,
         )
         .unwrap();

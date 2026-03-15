@@ -154,7 +154,8 @@ impl Trades {
                     // NOTE: despite using the parameter `symbol` in the request, Bybit returns all
                     // the symbols.
                     if content["retCode"].as_i64().unwrap() == 0 {
-                        for s in content["result"]["list"].as_array().unwrap() {
+                        if let Some(s) = content["result"]["list"].as_array().unwrap().iter().next()
+                        {
                             self.price = f64::from_str(s["price"].as_str().unwrap()).unwrap();
                             return;
                         }
