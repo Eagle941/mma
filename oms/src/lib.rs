@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, f64};
 
@@ -113,7 +113,10 @@ impl OrderManagementSystem {
         order_side: OrderSide,
     ) -> (f64, f64) {
         let new_inventory = match order_side {
-            OrderSide::Buy => inventory + execution_update.qty,
+            // NOTE: On a Buy, the fee is paid in the base asset (e.g., ADA). We must subtract it.
+            // On a Sell, the fee is paid in the quote asset (USDT), no additional fee to be
+            // removed.
+            OrderSide::Buy => inventory + execution_update.qty - execution_update.fee,
             OrderSide::Sell => inventory - execution_update.qty,
         };
 
@@ -257,6 +260,7 @@ mod tests {
         let execution_update = OrderExecution {
             order_link_id: 1234,
             price,
+            fee: 0.0,
             qty,
             remaining_qty: 50.0,
         };

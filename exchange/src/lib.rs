@@ -114,6 +114,7 @@ impl<'a> From<&Execution<'a>> for OrderMessages {
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
             qty: f64::from_str(src.exec_qty).unwrap(),
             price: f64::from_str(src.exec_price).unwrap(),
+            fee: f64::from_str(src.exec_fee).unwrap_or(0.0),
             remaining_qty: f64::from_str(src.leaves_qty).unwrap(),
         };
         OrderMessages::ExecutionUpdate(order)
@@ -178,6 +179,7 @@ pub struct OrderExecution {
     pub order_link_id: u64,
     // NOTE: price is the execution price
     pub price: f64,
+    pub fee: f64,
     // NOTEL qty is the size of the execution
     pub qty: f64,
     pub remaining_qty: f64,
