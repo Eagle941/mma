@@ -31,6 +31,7 @@ pub struct OrderManagementSystem {
     // A value of 0 shows no exposure to the market i.e. all positions closed.
     inventory: f64,
     avg_entry_price: f64,
+    coin: String,
     //
     id_map: FxHashMap<u64, usize>,
     id_generator: AtomicU64,
@@ -67,6 +68,7 @@ impl OrderManagementSystem {
             // NOTE: may be useful to keep track of past_orders
             inventory,
             avg_entry_price,
+            coin,
             //
             id_map: FxHashMap::default(),
             id_generator: AtomicU64::new(start_time_micros),
@@ -221,7 +223,7 @@ impl OrderManagementSystem {
                         // NOTE: The new inventory is positive, therefore we can repay the borrowed
                         // money. It is assumed it is triggered less than 1
                         // time per second.
-                        self.order_handler.repay_liability();
+                        self.order_handler.repay_liability(&self.coin);
                     }
                     self.avg_entry_price = avg_entry_price;
                     self.inventory = inventory;

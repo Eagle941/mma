@@ -207,15 +207,18 @@ impl OrderHandler {
     }
 
     #[log_execution_time]
-    pub fn repay_liability(&self) {
+    pub fn repay_liability(&self, coin: &str) {
         let url = format!("{}/v5/account/quick-repayment", self.base_url);
         let time_ms = Utc::now().timestamp_millis().to_string();
 
+        let body = json!({
+            "coin": coin,
+        });
         let signature = generate_signature(
             &time_ms,
             &self.api_key,
             &self.recv_window,
-            &String::default(),
+            &body.to_string(),
             &self.api_secret,
         )
         .unwrap();
