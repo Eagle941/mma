@@ -2,7 +2,8 @@ use std::str::FromStr;
 use std::{env, f64};
 
 use serde_json::Value;
-// TODO: struct `info` may need to become a shared struct common across
+
+// TODO: struct `Info` may need to become a shared struct common across
 // Exchanges.
 #[derive(Clone, Debug)]
 pub struct Info {
@@ -30,6 +31,7 @@ impl Info {
             decimal_places: 0,
         };
         info.get_info();
+        log::info!("{info:#?}");
         info
     }
 
@@ -38,7 +40,7 @@ impl Info {
         Self::new(symbol)
     }
 
-    pub fn get_info(&mut self) {
+    fn get_info(&mut self) {
         let url = format!(
             "{}/v5/market/instruments-info?category=spot&symbol={}",
             self.base_url, self.symbol
@@ -96,6 +98,79 @@ impl Info {
             Err(x) => {
                 panic!(
                     "Failed to receive instrument info for {}. Error {x}.",
+                    self.symbol
+                );
+            }
+        }
+    }
+}
+
+// TODO: struct `Trades` may need to become a shared struct common across
+// Exchanges.
+#[derive(Clone, Debug)]
+pub struct Trades {
+    base_url: String,
+    pub symbol: String,
+    pub price: f64,
+}
+impl Trades {
+    pub fn new(symbol: String) -> Self {
+        // TODO: add option to switch between testnet and production.
+        let base_url = "https://api-testnet.bybit.com".to_string();
+        let mut trades = Trades {
+            base_url,
+            symbol,
+            price: 0.0,
+        };
+        trades.get_trades();
+        log::info!("{trades:#?}");
+        trades
+    }
+
+    pub fn factory() -> Self {
+        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
+        Self::new(symbol)
+    }
+
+    fn get_trades(&mut self) {
+        let url = format!(
+            "{}/v5/market/recent-trade?category=spot&symbol={}&limit=1",
+            self.base_url, self.symbol
+        );
+        let res = attohttpc::get(url).send();
+        match res {
+            Ok(x) => {
+                if !x.is_success() {
+                    panic!(
+                        "Failed recent-trade response for {}. Status code {}",
+                        self.symbol,
+                        x.status()
+                    );
+                } else {
+                    let content = x.text().unwrap();
+                    let content: Value = serde_json::from_str(&content).unwrap();
+                    // NOTE: I am not deserialising the result in a struct because it's not time
+                    // critical and I don't need all the parameters.
+                    // NOTE: despite using the parameter `symbol` in the request, Bybit returns all
+                    // the symbols.
+                    if content["retCode"].as_i64().unwrap() == 0 {
+                        if let Some(s) = content["result"]["list"].as_array().unwrap().iter().next()
+                        {
+                            self.price = f64::from_str(s["price"].as_str().unwrap()).unwrap();
+                            return;
+                        }
+                        panic!("Symbol {} not found in recent-trade response.", self.symbol);
+                    } else {
+                        panic!(
+                            "Failed recent-trade request. Code: {}. Msg: {}",
+                            content["retCode"], content["retMsg"]
+                        );
+                    }
+                }
+            }
+            Err(x) => {
+                panic!(
+                    "Failed to receive recent-trade for {}. Error {x}.",
                     self.symbol
                 );
             }

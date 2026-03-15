@@ -79,18 +79,6 @@ fn run(_args: Args) -> anyhow::Result<()> {
             handler.subscribe();
         })?;
 
-    let strategy_thread = thread::Builder::new()
-        .name("strategy_thread".to_string())
-        .spawn(move || {
-            let mut simple_strategy = SimpleStrategy::factory(order_builder_to_oms, from_oms);
-            loop {
-                // NOTE: strategy is executed at around 1Hz for learning
-                let order_book = consumer.read();
-                simple_strategy.execute(order_book);
-                thread::sleep(Duration::from_millis(1000));
-            }
-        })?;
-
     let oms_thread = thread::Builder::new()
         .name("oms_thread".to_string())
         .spawn(move || {
@@ -101,6 +89,20 @@ fn run(_args: Args) -> anyhow::Result<()> {
             oms.cycle();
 
             drop(guard)
+        })?;
+
+    // NOTE: start startegy last after everything else has initialised.
+    // TODO: should I add a delay?
+    let strategy_thread = thread::Builder::new()
+        .name("strategy_thread".to_string())
+        .spawn(move || {
+            let mut simple_strategy = SimpleStrategy::factory(order_builder_to_oms, from_oms);
+            loop {
+                // NOTE: strategy is executed at around 1Hz for learning
+                let order_book = consumer.read();
+                simple_strategy.execute(order_book);
+                thread::sleep(Duration::from_millis(1000));
+            }
         })?;
 
     // TODO: close the program if either thread panics and crashes
