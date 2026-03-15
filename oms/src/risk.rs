@@ -55,14 +55,14 @@ impl RiskManager {
         // When inventory is around 0+/-2%, ignore any limiting.
         if inventory > MAX_INVENTORY * NEUTRAL_INVENTORY_THOLD && new_order.side == OrderSide::Sell
         {
-            let minimum_sell_price = average_entry_price * (1.0 + MAKER_FEE * 2.0);
+            let minimum_sell_price = average_entry_price * (1.0 + (MAKER_FEE / 100.0) * 2.0);
             if new_order_price <= minimum_sell_price {
                 return Outcome::DoNothing;
             }
         } else if inventory < MIN_INVENTORY * NEUTRAL_INVENTORY_THOLD
             && new_order.side == OrderSide::Buy
         {
-            let maximum_buy_price = average_entry_price * (1.0 - MAKER_FEE * 2.0);
+            let maximum_buy_price = average_entry_price * (1.0 - (MAKER_FEE / 100.0) * 2.0);
             if new_order_price >= maximum_buy_price {
                 return Outcome::DoNothing;
             }
