@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
 use exchange::bybit::private_ws::PrivateWebSocket;
