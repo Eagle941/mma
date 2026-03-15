@@ -100,14 +100,13 @@ impl SimpleStrategy {
         let mut bid_price = reservation_price - (BASE_SPREAD * precision);
         let mut ask_price = reservation_price + (BASE_SPREAD * precision);
 
-        if bid_price >= ask_price {
-            if self.inventory.is_sign_positive() {
-                bid_price = ask_price - precision;
-            } else {
-                ask_price = bid_price + precision;
-            }
+        if bid_price >= first_ask.price {
+            bid_price = first_ask.price - precision;
         }
 
+        if ask_price <= first_bid.price {
+            ask_price = first_bid.price + precision;
+        }
         // let profits = self.calculate_profits(bid_price, self.size, ask_price,
         // self.size); println!("Expected {profits:.*} USDT",
         // decimal_digits);
