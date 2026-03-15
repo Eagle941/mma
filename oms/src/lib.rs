@@ -31,6 +31,7 @@ pub struct OrderManagementSystem {
     // A value of 0 shows no exposure to the market i.e. all positions closed.
     inventory: f64,
     avg_entry_price: f64,
+    coin: String,
     //
     id_map: FxHashMap<u64, usize>,
     id_generator: AtomicU64,
@@ -44,7 +45,7 @@ impl OrderManagementSystem {
         let wallet = Wallet::new();
         // TODO: infer the coin from the `base_coin` field of instrument info.
         let coin = env::var("MMA_COIN").expect("MMA_COIN env variable must not be blank.");
-        let inventory = wallet.coins.get(&coin).unwrap().to_owned();
+        let inventory = wallet.coins.get(&coin).unwrap_or(&0.0).to_owned();
         // NOTE: pushing to recover strategy with the correct inventory
         to_strategy.force_push(inventory);
 
@@ -53,8 +54,11 @@ impl OrderManagementSystem {
             .expect("System clock went backwards!")
             .as_micros() as u64;
 
-        let avg_entry_price = Trades::factory().price;
-
+        let avg_entry_price = if inventory == 0.0 {
+            0.0
+        } else {
+            Trades::factory().price
+        };
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -64,6 +68,7 @@ impl OrderManagementSystem {
             // NOTE: may be useful to keep track of past_orders
             inventory,
             avg_entry_price,
+            coin,
             //
             id_map: FxHashMap::default(),
             id_generator: AtomicU64::new(start_time_micros),
@@ -110,7 +115,10 @@ impl OrderManagementSystem {
         order_side: OrderSide,
     ) -> (f64, f64) {
         let new_inventory = match order_side {
-            OrderSide::Buy => inventory + execution_update.qty,
+            // NOTE: On a Buy, the fee is paid in the base asset (e.g., ADA). We must subtract it.
+            // On a Sell, the fee is paid in the quote asset (USDT), no additional fee to be
+            // removed.
+            OrderSide::Buy => inventory + execution_update.qty - execution_update.fee,
             OrderSide::Sell => inventory - execution_update.qty,
         };
 
@@ -185,6 +193,9 @@ impl OrderManagementSystem {
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                     old_order.updated_time = order.updated_time;
+
+                    // TODO: Add order removal from Slab when they are closed to
+                    // clear up the memory.
                 };
             }
             OrderMessages::ExecutionUpdate(order) => {
@@ -202,12 +213,20 @@ impl OrderManagementSystem {
                     );
 
                     // NOTE: returning the new value because I can't borrow `self` twice as mutable.
-                    (self.avg_entry_price, self.inventory) = Self::update_metrics(
+                    let (avg_entry_price, inventory) = Self::update_metrics(
                         self.avg_entry_price,
                         self.inventory,
                         &order,
                         old_order.side,
                     );
+                    if self.inventory.is_sign_negative() && inventory.is_sign_positive() {
+                        // NOTE: The new inventory is positive, therefore we can repay the borrowed
+                        // money. It is assumed it is triggered less than 1
+                        // time per second.
+                        self.order_handler.repay_liability(&self.coin);
+                    }
+                    self.avg_entry_price = avg_entry_price;
+                    self.inventory = inventory;
                     self.to_strategy.force_push(self.inventory);
                 };
             }
@@ -243,6 +262,7 @@ mod tests {
         let execution_update = OrderExecution {
             order_link_id: 1234,
             price,
+            fee: 0.0,
             qty,
             remaining_qty: 50.0,
         };

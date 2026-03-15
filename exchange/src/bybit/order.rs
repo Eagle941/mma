@@ -2,7 +2,7 @@ use std::env;
 use std::str::FromStr;
 
 use chrono::Utc;
-use log::{info, warn};
+use log::{error, info, warn};
 use log_execution_time::log_execution_time;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, RequestBuilder};
@@ -206,6 +206,39 @@ impl OrderHandler {
         });
     }
 
+    #[log_execution_time]
+    pub fn repay_liability(&self, _coin: &str) {
+        let url = format!("{}/v5/account/quick-repayment", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &String::default(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms);
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            // NOTE: error 999 is used because an order id is required, but there is no
+            // order id for cancel-all. I am not using an Option type to reduce the
+            // overhead.
+            Self::send_request(request, 999).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
+        });
+    }
+
     async fn send_request(request: RequestBuilder, order_link_id: u64) {
         let res = request.send().await;
         match res {
@@ -266,9 +299,13 @@ impl OrderHandler {
                     }
                     10016 => {
                         // internal server error
-                        // This is triggered when the request rate limit is
-                        // exceeded
-                        panic!("{url} Internal server error.")
+                        // For orders, this is triggered when the request rate limit is
+                        // exceeded.
+                        // The call to quick-repayment also returns 10016 even when the repayment
+                        // was executed successfully, therefore I don't want to panic.
+                        // NOTE: this was changed from panic! to error! for quick-repayment not to
+                        // crash the bot.
+                        error!("{url} Internal server error.")
                     }
                     _ => panic!(
                         "Failed {url} request. Code: {}. Msg: {}",
