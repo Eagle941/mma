@@ -89,10 +89,13 @@ impl SimpleStrategy {
         );
 
         let precision = self.instrument_info.tick_size;
-        let mid_price = (first_bid.price + first_ask.price) / 2.0;
+        // TODO: check if I should go to different levels for the mid price depending on
+        // the volume available in the top level.
+        let micro_price = (first_bid.price * first_bid.size + first_ask.price * first_ask.size)
+            / (first_bid.size + first_ask.size);
 
         let price_shift = self.inventory * SKEW_FACTOR * precision;
-        let reservation_price = mid_price - price_shift;
+        let reservation_price = micro_price - price_shift;
 
         let mut bid_price = reservation_price - (BASE_SPREAD * precision);
         let mut ask_price = reservation_price + (BASE_SPREAD * precision);
