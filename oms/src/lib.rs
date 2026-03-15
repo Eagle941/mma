@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, f64};
 
@@ -44,7 +44,7 @@ impl OrderManagementSystem {
         let wallet = Wallet::new();
         // TODO: infer the coin from the `base_coin` field of instrument info.
         let coin = env::var("MMA_COIN").expect("MMA_COIN env variable must not be blank.");
-        let inventory = wallet.coins.get(&coin).unwrap().to_owned();
+        let inventory = wallet.coins.get(&coin).unwrap_or(&0.0).to_owned();
         // NOTE: pushing to recover strategy with the correct inventory
         to_strategy.force_push(inventory);
 
@@ -53,8 +53,11 @@ impl OrderManagementSystem {
             .expect("System clock went backwards!")
             .as_micros() as u64;
 
-        let avg_entry_price = Trades::factory().price;
-
+        let avg_entry_price = if inventory == 0.0 {
+            0.0
+        } else {
+            Trades::factory().price
+        };
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -185,6 +188,9 @@ impl OrderManagementSystem {
                     old_order.filled_price = order.filled_price;
                     old_order.filled_qty = order.filled_qty;
                     old_order.updated_time = order.updated_time;
+
+                    // TODO: Add order removal from Slab when they are closed to
+                    // clear up the memory.
                 };
             }
             OrderMessages::ExecutionUpdate(order) => {
