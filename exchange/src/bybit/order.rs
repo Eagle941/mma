@@ -206,6 +206,39 @@ impl OrderHandler {
         });
     }
 
+    #[log_execution_time]
+    pub fn repay_liability(&self) {
+        let url = format!("{}/v5/account/quick-repayment", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &String::default(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms);
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            // NOTE: error 999 is used because an order id is required, but there is no
+            // order id for cancel-all. I am not using an Option type to reduce the
+            // overhead.
+            Self::send_request(request, 999).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
+        });
+    }
+
     async fn send_request(request: RequestBuilder, order_link_id: u64) {
         let res = request.send().await;
         match res {

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, f64};
 
@@ -208,12 +208,20 @@ impl OrderManagementSystem {
                     );
 
                     // NOTE: returning the new value because I can't borrow `self` twice as mutable.
-                    (self.avg_entry_price, self.inventory) = Self::update_metrics(
+                    let (avg_entry_price, inventory) = Self::update_metrics(
                         self.avg_entry_price,
                         self.inventory,
                         &order,
                         old_order.side,
                     );
+                    if self.inventory.is_sign_negative() && inventory.is_sign_positive() {
+                        // NOTE: The new inventory is positive, therefore we can repay the borrowed
+                        // money. It is assumed it is triggered less than 1
+                        // time per second.
+                        self.order_handler.repay_liability();
+                    }
+                    self.avg_entry_price = avg_entry_price;
+                    self.inventory = inventory;
                     self.to_strategy.force_push(self.inventory);
                 };
             }
