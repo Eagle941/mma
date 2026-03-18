@@ -6,7 +6,7 @@ use attohttpc::Session;
 use chrono::Utc;
 use serde_json::Value;
 
-use crate::bybit::utils::generate_signature;
+use crate::bybit::utils::{generate_signature, get_base_url};
 
 #[derive(Clone, Debug)]
 pub struct Wallet {
@@ -21,8 +21,7 @@ impl Wallet {
     // NOTE: The default implementation doesn't have any sense for this struct.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        // TODO: add option to switch between testnet and production.
-        let base_url = "https://api-testnet.bybit.com".to_string();
+        let base_url = get_base_url();
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
         let api_secret =
             env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");

@@ -3,6 +3,8 @@ use std::{env, f64};
 
 use serde_json::Value;
 
+use crate::bybit::utils::get_base_url;
+
 // TODO: struct `Info` may need to become a shared struct common across
 // Exchanges.
 #[derive(Clone, Debug)]
@@ -18,8 +20,7 @@ pub struct Info {
 }
 impl Info {
     pub fn new(symbol: String) -> Self {
-        // TODO: add option to switch between testnet and production.
-        let base_url = "https://api-testnet.bybit.com".to_string();
+        let base_url = get_base_url();
         let mut info = Info {
             base_url,
             symbol,
@@ -115,8 +116,7 @@ pub struct Trades {
 }
 impl Trades {
     pub fn new(symbol: String) -> Self {
-        // TODO: add option to switch between testnet and production.
-        let base_url = "https://api-testnet.bybit.com".to_string();
+        let base_url = get_base_url();
         let mut trades = Trades {
             base_url,
             symbol,

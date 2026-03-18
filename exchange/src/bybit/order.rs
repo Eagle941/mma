@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 
-use crate::bybit::utils::generate_signature;
+use crate::bybit::utils::{generate_signature, get_base_url};
 use crate::{OrderAmendedBuilder, OrderBuilder};
 
 // TODO: Add automatic casting of `result` to various struct types like in bybit
@@ -44,8 +44,7 @@ impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        // TODO: add option to switch between testnet and production.
-        let base_url = "https://api-testnet.bybit.com".to_string();
+        let base_url = get_base_url();
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
         let api_secret =
             env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");

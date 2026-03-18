@@ -1,9 +1,10 @@
 use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
-use bybit::ws::spot::OrderbookDepth;
+use bybit::ws::spot::{OrderbookDepth, SpotWebsocketApiClient};
 use log::warn;
 use triple_buffer::Input;
 
+use crate::bybit::utils::is_testnet;
 use crate::{Level, OrderBook};
 
 // TODO: set from the configuration package.
@@ -14,6 +15,13 @@ pub struct PublicWebSocket {
     order_book: OrderBook,
 }
 impl PublicWebSocket {
+    fn get_ws_client(&self) -> SpotWebsocketApiClient {
+        if is_testnet() {
+            return WebSocketApiClient::spot().testnet().build();
+        }
+        WebSocketApiClient::spot().build()
+    }
+
     // TODO: Optimise order book updates
     fn process_delta(&mut self, data: Orderbook) {
         // process asks
@@ -57,8 +65,7 @@ impl PublicWebSocket {
 
     // TODO: extract callback in separate function for testing.
     pub fn subscribe(&mut self, order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
-        // TODO: add option to switch between testnet and production.
-        let mut client = WebSocketApiClient::spot().testnet().build();
+        let mut client = self.get_ws_client();
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
 
         let callback = |res: SpotPublicResponse| {
