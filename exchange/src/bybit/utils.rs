@@ -1,3 +1,5 @@
+use std::env;
+
 use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -22,6 +24,20 @@ pub fn generate_signature(
     let result = mac.finalize();
     let code_bytes = result.into_bytes();
     Ok(hex::encode(code_bytes))
+}
+
+pub fn is_testnet() -> bool {
+    env::var("MMA_TESTNET")
+        .expect("MMA_TESTNET env variable must not be blank.")
+        .parse()
+        .unwrap()
+}
+
+pub fn get_base_url() -> String {
+    if is_testnet() {
+        return "https://api-testnet.bybit.com".to_string();
+    }
+    "https://api.bybit.com".to_string()
 }
 
 // TODO: add tests for `generate_signature`

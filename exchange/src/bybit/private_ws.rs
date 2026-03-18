@@ -1,11 +1,13 @@
 use std::env;
 
 use bybit::WebSocketApiClient;
+use bybit::ws::private::PrivateWebsocketApiClient;
 use bybit::ws::response::PrivateResponse;
 use crossbeam_channel::Sender;
 use log::warn;
 
 use crate::OrderMessages;
+use crate::bybit::utils::is_testnet;
 
 #[derive(Debug)]
 pub struct PrivateWebSocket {
@@ -26,11 +28,17 @@ impl PrivateWebSocket {
         }
     }
 
+    fn get_ws_client(&self) -> PrivateWebsocketApiClient {
+        if is_testnet() {
+            return WebSocketApiClient::private()
+                .testnet()
+                .build_with_credentials(&self.api_key, &self.api_secret);
+        }
+        WebSocketApiClient::private().build_with_credentials(&self.api_key, &self.api_secret)
+    }
+
     pub fn subscribe(&self) {
-        // TODO: add option to switch between testnet and production.
-        let mut client = WebSocketApiClient::private()
-            .testnet()
-            .build_with_credentials(&self.api_key, &self.api_secret);
+        let mut client = self.get_ws_client();
         client.subscribe_order();
         client.subscribe_execution();
 
