@@ -5,6 +5,7 @@ members = [
   "cli",
   "exchange",
   "oms",
+  "recorder",
   "strategy"
 ]
 

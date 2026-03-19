@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, f64};
 
@@ -118,17 +118,17 @@ impl OrderManagementSystem {
             // NOTE: On a Buy, the fee is paid in the base asset (e.g., ADA). We must subtract it.
             // On a Sell, the fee is paid in the quote asset (USDT), no additional fee to be
             // removed.
-            OrderSide::Buy => inventory + execution_update.qty - execution_update.fee,
-            OrderSide::Sell => inventory - execution_update.qty,
+            OrderSide::Buy => inventory + execution_update.exec_qty - execution_update.exec_fee,
+            OrderSide::Sell => inventory - execution_update.exec_qty,
         };
 
         if inventory.abs() < 1e-8 {
-            return (execution_update.price, new_inventory);
+            return (execution_update.exec_price, new_inventory);
         } else if (inventory > 0.0 && order_side == OrderSide::Buy)
             || (inventory < 0.0 && order_side == OrderSide::Sell)
         {
             let total_value = (inventory.abs() * avg_entry_price)
-                + (execution_update.qty * execution_update.price);
+                + (execution_update.exec_qty * execution_update.exec_price);
             return (total_value / new_inventory.abs(), new_inventory);
         } else if new_inventory.abs() < 1e-8 {
             return (0.0, new_inventory);
@@ -137,7 +137,7 @@ impl OrderManagementSystem {
             let crossed_zero = inventory.signum() != new_inventory.signum();
 
             if crossed_zero {
-                return (execution_update.price, new_inventory);
+                return (execution_update.exec_price, new_inventory);
             }
             // If we didn't cross zero avg_entry_price stays the same!
         }
@@ -209,7 +209,7 @@ impl OrderManagementSystem {
                     // affect the logic of the bot.
                     info!(
                         "Execution order {} {:.3} {:.0}",
-                        order.order_link_id, order.price, order.qty
+                        order.order_link_id, order.exec_price, order.exec_qty
                     );
 
                     // NOTE: returning the new value because I can't borrow `self` twice as mutable.
@@ -254,17 +254,22 @@ mod tests {
     fn test_avg_entry_price(
         #[case] avg_entry_price: f64,
         #[case] inventory: f64,
-        #[case] price: f64,
-        #[case] qty: f64,
+        #[case] exec_price: f64,
+        #[case] exec_qty: f64,
         #[case] order_side: OrderSide,
         #[case] expected_avg_entry_price: f64,
     ) {
         let execution_update = OrderExecution {
             order_link_id: 1234,
-            price,
-            fee: 0.0,
-            qty,
+            exec_price,
+            exec_fee: 0.0,
+            exec_qty,
             remaining_qty: 50.0,
+            exec_id: "abcd".to_string(),
+            exec_ts: 1773956505537,
+            order_id: "1773956505537".to_string(),
+            order_price: exec_price,
+            order_side,
         };
 
         let new_metrics = OrderManagementSystem::update_metrics(

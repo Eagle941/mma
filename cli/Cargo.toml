@@ -27,3 +27,4 @@ triple_buffer = "8.1.1"
 exchange = { path = "../exchange" }
 strategy = { path = "../strategy" }
 oms = { path = "../oms" }
+recorder = { path = "../recorder" }

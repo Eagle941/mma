@@ -1,6 +1,9 @@
-use bybit::WebSocketApiClient;
+use std::sync::Arc;
+
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::{OrderbookDepth, SpotWebsocketApiClient};
+use bybit::WebSocketApiClient;
+use crossbeam_queue::ArrayQueue;
 use log::warn;
 use triple_buffer::Input;
 
@@ -10,11 +13,19 @@ use crate::{Level, OrderBook};
 // TODO: set from the configuration package.
 pub const ORDER_BOOK_LEVELS: usize = 50;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PublicWebSocket {
+    to_recorder: Arc<ArrayQueue<OrderBook>>,
     order_book: OrderBook,
 }
 impl PublicWebSocket {
+    pub fn new(to_recorder: Arc<ArrayQueue<OrderBook>>) -> Self {
+        PublicWebSocket {
+            to_recorder,
+            order_book: OrderBook::default(),
+        }
+    }
+
     fn get_ws_client(&self) -> SpotWebsocketApiClient {
         if is_testnet() {
             return WebSocketApiClient::spot().testnet().build();
@@ -71,7 +82,9 @@ impl PublicWebSocket {
         let callback = |res: SpotPublicResponse| {
             match res {
                 SpotPublicResponse::Orderbook(res) => {
-                    // Once you have subscribed successfully, you will receive a snapshot.
+                    // TODO: should it be res.cts? It's not available at the moment.
+                    self.order_book.cts = res.ts;
+                    self.order_book.ts = res.ts;
                     // If you receive a new snapshot message, you will have to reset your local
                     // orderbook.
                     if res.type_ == "snapshot" || res.data.u == 1 {
@@ -90,6 +103,8 @@ impl PublicWebSocket {
                     order_book.asks = self.order_book.asks.clone();
                     order_book.bids = self.order_book.bids.clone();
                     order_book_publisher.publish();
+
+                    self.to_recorder.force_push(self.order_book.clone());
                 }
                 SpotPublicResponse::Op(res) => {
                     if !res.success {
