@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use bybit::WebSocketApiClient;
 use bybit::ws::response::{Orderbook, SpotPublicResponse};
 use bybit::ws::spot::{OrderbookDepth, SpotWebsocketApiClient};
-use bybit::WebSocketApiClient;
 use crossbeam_queue::ArrayQueue;
 use log::warn;
 use triple_buffer::Input;

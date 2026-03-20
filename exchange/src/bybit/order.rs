@@ -272,20 +272,15 @@ impl OrderHandler {
                         // Timestamp for this request is outside of the
                         // recvWindow.
                         // NOTE: if the order request took too long to
-                        // arrive, just skip the
-                        // order and let the strategy send a new one in the
-                        // next cycle with
-                        // updated values.
+                        // arrive, just skip the order and let the strategy send a new one in the
+                        // next cycle with updated values.
                         // Sell order price cannot be lower than %s.
                         // Buy order price cannot be higher than %s.
                         // NOTE: This error occurs when order book changed
-                        // while submitting the
-                        // order. Wait for the next cycle to submit another
-                        // order at a different
-                        // price.
+                        // while submitting the order. Wait for the next cycle to submit another
+                        // order at a different price.
                         // The order remains unchanged as the parameters
-                        // entered match the
-                        // existing ones.
+                        // entered match the existing ones.
                         // NOTE: This error occurs
                         // when two identical amend orders are issued at the
                         // same time due to the latency to receive the HTTP response.
@@ -298,7 +293,8 @@ impl OrderHandler {
                             order_link_id, content.ret_code, content.ret_msg
                         );
                     }
-                    10016 => {
+                    10000 | 10016 => {
+                        // Server Timeout
                         // internal server error
                         // For orders, this is triggered when the request rate limit is
                         // exceeded.
