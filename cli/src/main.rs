@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use clap::Parser;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
 use exchange::bybit::private_ws::PrivateWebSocket;
@@ -71,8 +71,9 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
-    let (from_execution, to_oms): (Sender<OrderMessages>, Receiver<OrderMessages>) = unbounded();
-    let to_recorder = to_oms.clone();
+    let (execution_to_oms, to_oms): (Sender<OrderMessages>, Receiver<OrderMessages>) = unbounded();
+    let (execution_to_recorder, to_recorder): (Sender<OrderMessages>, Receiver<OrderMessages>) =
+        unbounded();
 
     // NOTE: The queue has a length of 1 because only the most recent value of
     // inventory is useful. If the queue is full, the value is replaced.
@@ -84,7 +85,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let private_ws_thread = thread::Builder::new()
         .name("private_ws_thread".to_string())
         .spawn(move || {
-            let handler = PrivateWebSocket::new(from_execution);
+            let handler = PrivateWebSocket::new(execution_to_oms, execution_to_recorder);
             handler.subscribe();
         })?;
 

@@ -14,15 +14,17 @@ pub struct PrivateWebSocket {
     api_key: String,
     api_secret: String,
     to_oms: Sender<OrderMessages>,
+    to_recorder: Sender<OrderMessages>,
 }
 impl PrivateWebSocket {
     // Temporary while secrets handling hasn't been implemented
-    pub fn new(to_oms: Sender<OrderMessages>) -> Self {
+    pub fn new(to_oms: Sender<OrderMessages>, to_recorder: Sender<OrderMessages>) -> Self {
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
         let api_secret =
             env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");
         PrivateWebSocket {
             to_oms,
+            to_recorder,
             api_key,
             api_secret,
         }
@@ -60,6 +62,7 @@ impl PrivateWebSocket {
                         continue;
                     }
                     self.to_oms.send((&order).into()).unwrap();
+                    self.to_recorder.send((&order).into()).unwrap();
                 }
             }
             PrivateResponse::Op(res) => {
