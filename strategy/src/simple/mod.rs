@@ -58,15 +58,20 @@ impl SimpleStrategy {
     // }
 
     pub fn execute(&mut self, order_book: &OrderBook) {
-        const BASE_SPREAD: f64 = 2.0;
-        const SKEW_FACTOR: f64 = 0.01;
-
         if order_book.bids.is_empty() || order_book.asks.is_empty() {
             warn!("Empty book");
             return;
         }
 
         self.inventory = self.from_oms.pop().unwrap_or(self.inventory);
+        self.compute_orders(order_book)
+            .into_iter()
+            .for_each(|order| self.to_oms.send(order).unwrap());
+    }
+
+    fn compute_orders(&mut self, order_book: &OrderBook) -> Vec<OrderBuilder> {
+        const BASE_SPREAD: f64 = 2.0;
+        const SKEW_FACTOR: f64 = 0.01;
 
         let first_bid = order_book.bids.first().unwrap();
         // let last_bid = order_book.bids.last().unwrap();
@@ -114,6 +119,7 @@ impl SimpleStrategy {
         // TODO: Optimise String cloning
         // TODO: Make batch order submission
         // TODO: Deal with channel send errors
+        // TODO: Optimise use of vector to return orders to submit to oms
         let bid_order = OrderBuilder {
             symbol: self.instrument_info.symbol.clone(),
             side: OrderSide::Buy,
@@ -121,8 +127,6 @@ impl SimpleStrategy {
             qty: self.size,
             price: format!("{bid_price:.*}", decimal_digits),
         };
-        info!("Sending buy order");
-        self.to_oms.send(bid_order).unwrap();
 
         let ask_order = OrderBuilder {
             symbol: self.instrument_info.symbol.clone(),
@@ -131,7 +135,7 @@ impl SimpleStrategy {
             qty: self.size,
             price: format!("{ask_price:.*}", decimal_digits),
         };
-        info!("Sending sell order");
-        self.to_oms.send(ask_order).unwrap();
+
+        return vec![bid_order, ask_order];
     }
 }
