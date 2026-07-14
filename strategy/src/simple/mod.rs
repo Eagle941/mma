@@ -120,6 +120,6 @@ impl SimpleStrategy {
             price: format!("{ask_price:.*}", decimal_digits),
         };
 
-        return vec![bid_order, ask_order];
+        vec![bid_order, ask_order]
     }
 }

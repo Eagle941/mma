@@ -1,20 +1,24 @@
+use std::process;
 use std::sync::Arc;
-use std::time::Duration;
-use std::{env, process, thread};
 
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
-use exchange::bybit::private_ws::PrivateWebSocket;
-use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
 use log::info;
-use oms::OrderManagementSystem;
-use recorder::MarkoutEngine;
-use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
+
+use crate::threads::{
+    create_oms_thread,
+    create_private_ws_thread,
+    create_public_ws_thread,
+    create_recorder_thread,
+    create_strategy_thread,
+};
+
+mod threads;
 
 #[derive(Clone, Parser, Debug)]
 pub struct Args {}
@@ -51,7 +55,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let runtime_handle = tokio::runtime::Handle::current();
 
     let order_book = OrderBook::default();
-    let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
+    let (producer, consumer) = TripleBuffer::new(&order_book).split();
 
     // NOTE: The queue has a length of 1 because only the most recent value of
     // order_book is useful. If the queue is full, the value is replaced.
@@ -60,14 +64,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let to_recorder = Arc::clone(&order_book_queue);
     let from_book = Arc::clone(&order_book_queue);
 
-    let public_ws_thread = thread::Builder::new()
-        .name("public_ws_thread".to_string())
-        .spawn(move || {
-            let symbol =
-                env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-            let mut handler = PublicWebSocket::new(to_recorder);
-            handler.subscribe(&mut producer, &symbol);
-        })?;
+    let public_ws_thread = create_public_ws_thread(to_recorder, producer)?;
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
@@ -82,46 +79,18 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let from_oms = Arc::clone(&inventory_queue);
     let to_strategy = Arc::clone(&inventory_queue);
 
-    let private_ws_thread = thread::Builder::new()
-        .name("private_ws_thread".to_string())
-        .spawn(move || {
-            let handler = PrivateWebSocket::new(execution_to_oms, execution_to_recorder);
-            handler.subscribe();
-        })?;
-
-    let oms_thread = thread::Builder::new()
-        .name("oms_thread".to_string())
-        .spawn(move || {
-            let guard = runtime_handle.enter();
-
-            let mut oms = OrderManagementSystem::new(from_strategy, to_oms, to_strategy);
-            oms.cycle();
-
-            drop(guard)
-        })?;
-
-    let recorder_thread = thread::Builder::new()
-        .name("recorder_thread".to_string())
-        .spawn(move || {
-            let mut recorder = MarkoutEngine::new(from_book, to_recorder);
-            recorder.cycle();
-        })?;
+    let private_ws_thread = create_private_ws_thread(execution_to_oms, execution_to_recorder)?;
+    let oms_thread = create_oms_thread(runtime_handle, from_strategy, to_oms, to_strategy)?;
+    let recorder_thread = create_recorder_thread(from_book, to_recorder)?;
 
     // NOTE: start startegy last after everything else has initialised.
     // TODO: should I add a delay?
-    let strategy_thread = thread::Builder::new()
-        .name("strategy_thread".to_string())
-        .spawn(move || {
-            let mut simple_strategy = SimpleStrategy::factory(order_builder_to_oms, from_oms);
-            loop {
-                // NOTE: strategy is executed at around 1Hz for learning
-                let order_book = consumer.read();
-                simple_strategy.execute(order_book);
-                thread::sleep(Duration::from_millis(1000));
-            }
-        })?;
+    let strategy_thread = create_strategy_thread(order_builder_to_oms, from_oms, consumer)?;
 
-    // TODO: close the program if either thread panics and crashes
+    // TODO: Add a function that creates the communication channels and starts all
+    // worker threads, returning their handles. Add a separate function that
+    // monitors those handles for worker failures and coordinates graceful
+    // shutdown, including cancellation of open orders.
     public_ws_thread
         .join()
         .expect("public_ws_thread has panicked");
