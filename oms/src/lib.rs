@@ -1,12 +1,9 @@
+use std::f64;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{env, f64};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
-use exchange::bybit::market::Trades;
-use exchange::bybit::wallet::Wallet;
 use exchange::{Order, OrderBuilder, OrderExecution, OrderGateway, OrderMessages, OrderSide};
 use log::{info, warn};
 use rustc_hash::FxHashMap;
@@ -15,6 +12,29 @@ use slab::Slab;
 use crate::risk::{Outcome, RiskManager};
 
 pub mod risk;
+
+#[derive(Debug)]
+pub struct OmsConfig {
+    coin: String,
+    inventory: f64,
+    avg_entry_price: f64,
+    initial_order_link_id: u64,
+}
+impl OmsConfig {
+    pub fn new(
+        coin: impl Into<String>,
+        inventory: f64,
+        avg_entry_price: f64,
+        initial_order_link_id: u64,
+    ) -> Self {
+        OmsConfig {
+            coin: coin.into(),
+            inventory,
+            avg_entry_price,
+            initial_order_link_id,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct OrderManagementSystem {
@@ -41,24 +61,11 @@ impl OrderManagementSystem {
         from_order_handler: Receiver<OrderMessages>,
         to_strategy: Arc<ArrayQueue<f64>>,
         order_gateway: Box<dyn OrderGateway>,
+        config: OmsConfig,
     ) -> OrderManagementSystem {
-        let wallet = Wallet::new();
-        // TODO: infer the coin from the `base_coin` field of instrument info.
-        let coin = env::var("MMA_COIN").expect("MMA_COIN env variable must not be blank.");
-        let inventory = wallet.coins.get(&coin).unwrap_or(&0.0).to_owned();
         // NOTE: pushing to recover strategy with the correct inventory
-        to_strategy.force_push(inventory);
+        to_strategy.force_push(config.inventory);
 
-        let start_time_micros = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("System clock went backwards!")
-            .as_micros() as u64;
-
-        let avg_entry_price = if inventory == 0.0 {
-            0.0
-        } else {
-            Trades::factory().price
-        };
         OrderManagementSystem {
             from_strategy,
             from_order_handler,
@@ -66,12 +73,12 @@ impl OrderManagementSystem {
             order_gateway,
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
-            inventory,
-            avg_entry_price,
-            coin,
+            inventory: config.inventory,
+            avg_entry_price: config.avg_entry_price,
+            coin: config.coin,
             //
             id_map: FxHashMap::default(),
-            id_generator: AtomicU64::new(start_time_micros),
+            id_generator: AtomicU64::new(config.initial_order_link_id),
         }
     }
 
@@ -242,9 +249,113 @@ impl OrderManagementSystem {
 #[cfg(test)]
 mod tests {
     use assert_approx_eq::assert_approx_eq;
+    use crossbeam_channel::unbounded;
+    use exchange::{OrderAmendedBuilder, OrderStatus, OrderType};
     use rstest::rstest;
 
     use super::*;
+
+    #[derive(Debug)]
+    struct TestOrderGateway;
+
+    impl OrderGateway for TestOrderGateway {
+        fn submit_order(&self, _order: &OrderBuilder, _order_link_id: u64) {}
+
+        fn amend_order(&self, _order: &OrderAmendedBuilder) {}
+
+        fn repay_liability(&self, _coin: &str) {}
+
+        fn cancel_all(&self) {}
+    }
+
+    fn test_oms(initial_order_link_id: u64) -> OrderManagementSystem {
+        let (_, from_strategy) = unbounded();
+        let (_, from_order_handler) = unbounded();
+        let to_strategy = Arc::new(ArrayQueue::new(1));
+        let config = OmsConfig::new("ADA", 0.0, 0.0, initial_order_link_id);
+
+        OrderManagementSystem::new(
+            from_strategy,
+            from_order_handler,
+            to_strategy,
+            Box::new(TestOrderGateway),
+            config,
+        )
+    }
+
+    #[test]
+    fn insert_new_order_into_empty_oms() {
+        let initial_order_link_id = 1000;
+        let mut oms = test_oms(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let order_link_id = oms.insert_new_order(&order_builder);
+
+        assert_eq!(order_link_id, initial_order_link_id);
+        assert_eq!(oms.orders.len(), 1);
+        assert_eq!(oms.id_map.len(), 1);
+
+        let slab_index = *oms.id_map.get(&order_link_id).unwrap();
+        let stored_order = oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.order_link_id, order_link_id);
+    }
+
+    #[test]
+    fn insert_new_order_stores_builder_values() {
+        let mut oms = test_oms(1000);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let order_link_id = oms.insert_new_order(&order_builder);
+
+        let slab_index = *oms.id_map.get(&order_link_id).unwrap();
+        let stored_order = oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.symbol, order_builder.symbol);
+        assert_eq!(stored_order.side, order_builder.side);
+        assert_eq!(stored_order.order_type, order_builder.order_type);
+        assert_eq!(stored_order.qty, order_builder.qty);
+        assert_eq!(stored_order.price, 0.567);
+        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
+        assert_eq!(stored_order.filled_qty, 0.0);
+        assert!(stored_order.filled_price.is_nan());
+        assert_eq!(stored_order.updated_time, 0);
+    }
+
+    #[test]
+    fn insert_new_order_generates_distinct_sequential_ids() {
+        let mut oms = test_oms(1000);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let first_id = oms.insert_new_order(&order_builder);
+        let second_id = oms.insert_new_order(&order_builder);
+        let third_id = oms.insert_new_order(&order_builder);
+
+        assert_eq!([first_id, second_id, third_id], [1000, 1001, 1002]);
+        assert_eq!(oms.orders.len(), 3);
+        assert_eq!(oms.id_map.len(), 3);
+
+        for order_link_id in [first_id, second_id, third_id] {
+            let slab_index = *oms.id_map.get(&order_link_id).unwrap();
+            assert_eq!(oms.orders[slab_index].order_link_id, order_link_id);
+        }
+    }
 
     #[rstest]
     #[case(0.0, 0.0, 0.567, 22.0, OrderSide::Buy, 0.567)]

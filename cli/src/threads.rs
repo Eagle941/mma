@@ -9,7 +9,7 @@ use exchange::bybit::order::OrderHandler;
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
-use oms::OrderManagementSystem;
+use oms::{OmsConfig, OrderManagementSystem};
 use recorder::MarkoutEngine;
 use strategy::simple::SimpleStrategy;
 use triple_buffer::{Input, Output};
@@ -45,6 +45,7 @@ pub(super) fn create_oms_thread(
     from_strategy: Receiver<OrderBuilder>,
     from_order_handler: Receiver<OrderMessages>,
     to_strategy: Arc<ArrayQueue<f64>>,
+    oms_config: OmsConfig,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("oms_thread".to_string())
@@ -57,6 +58,7 @@ pub(super) fn create_oms_thread(
                 from_order_handler,
                 to_strategy,
                 order_gateway,
+                oms_config,
             );
             oms.cycle();
 

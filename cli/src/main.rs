@@ -1,13 +1,17 @@
-use std::process;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, process};
 
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
+use exchange::bybit::market::Trades;
+use exchange::bybit::wallet::Wallet;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
 use log::info;
+use oms::OmsConfig;
 use triple_buffer::TripleBuffer;
 
 use crate::threads::{
@@ -38,6 +42,24 @@ async fn main() {
     }
 }
 
+fn load_oms_config() -> OmsConfig {
+    let wallet = Wallet::new();
+    // TODO: infer the coin from the `base_coin` field of instrument info.
+    let coin = env::var("MMA_COIN").expect("MMA_COIN env variable must not be blank.");
+    let inventory = wallet.coins.get(&coin).copied().unwrap_or(0.0);
+    let avg_entry_price = if inventory == 0.0 {
+        0.0
+    } else {
+        Trades::factory().price
+    };
+    let next_order_link_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System clock went backwards!")
+        .as_micros() as u64;
+
+    OmsConfig::new(coin, inventory, avg_entry_price, next_order_link_id)
+}
+
 fn run(_args: Args) -> anyhow::Result<()> {
     dotenvy::dotenv().expect(".env file must be present with configuration parameters.");
     dotenvy::from_filename(".secrets")
@@ -53,6 +75,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     info!("Started MMA");
     let runtime_handle = tokio::runtime::Handle::current();
+    let oms_config = load_oms_config();
 
     let order_book = OrderBook::default();
     let (producer, consumer) = TripleBuffer::new(&order_book).split();
@@ -80,7 +103,13 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let to_strategy = Arc::clone(&inventory_queue);
 
     let private_ws_thread = create_private_ws_thread(execution_to_oms, execution_to_recorder)?;
-    let oms_thread = create_oms_thread(runtime_handle, from_strategy, to_oms, to_strategy)?;
+    let oms_thread = create_oms_thread(
+        runtime_handle,
+        from_strategy,
+        to_oms,
+        to_strategy,
+        oms_config,
+    )?;
     let recorder_thread = create_recorder_thread(from_book, to_recorder)?;
 
     // NOTE: start startegy last after everything else has initialised.
