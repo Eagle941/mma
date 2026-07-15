@@ -162,6 +162,18 @@ pub struct OrderAmendedBuilder {
     pub new_qty: bool,
 }
 
+/// Dispatches order commands to an exchange.
+///
+/// These methods confirm that a command was dispatched, not that the exchange
+/// accepted or executed it. Exchange responses arrive separately through the
+/// private order stream.
+pub trait OrderGateway: std::fmt::Debug {
+    fn submit_order(&self, order: &OrderBuilder, order_link_id: u64);
+    fn amend_order(&self, order: &OrderAmendedBuilder);
+    fn repay_liability(&self, coin: &str);
+    fn cancel_all(&self);
+}
+
 // TODO: Add order timestamps
 // TODO: Is it better to keep price as String instead of f64?
 #[derive(Clone, Serialize, Deserialize, Debug)]

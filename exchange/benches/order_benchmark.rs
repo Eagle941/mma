@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use exchange::bybit::order::OrderHandler;
-use exchange::{OrderBuilder, OrderSide, OrderType};
+use exchange::{OrderBuilder, OrderGateway, OrderSide, OrderType};
 
 fn bench_order_handler(c: &mut Criterion) {
     unsafe {

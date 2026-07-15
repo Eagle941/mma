@@ -6,9 +6,8 @@ use std::{env, f64};
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
 use exchange::bybit::market::Trades;
-use exchange::bybit::order::OrderHandler;
 use exchange::bybit::wallet::Wallet;
-use exchange::{Order, OrderBuilder, OrderExecution, OrderMessages, OrderSide};
+use exchange::{Order, OrderBuilder, OrderExecution, OrderGateway, OrderMessages, OrderSide};
 use log::{info, warn};
 use rustc_hash::FxHashMap;
 use slab::Slab;
@@ -22,7 +21,7 @@ pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
     from_order_handler: Receiver<OrderMessages>,
     to_strategy: Arc<ArrayQueue<f64>>,
-    order_handler: OrderHandler,
+    order_gateway: Box<dyn OrderGateway>,
     // TODO: the Slab will grow infinitely. It needs to be pruned when orders are completed.
     orders: Slab<Order>,
     // NOTE: at the moment it supports only one pair (ADAUSDT)
@@ -41,6 +40,7 @@ impl OrderManagementSystem {
         from_strategy: Receiver<OrderBuilder>,
         from_order_handler: Receiver<OrderMessages>,
         to_strategy: Arc<ArrayQueue<f64>>,
+        order_gateway: Box<dyn OrderGateway>,
     ) -> OrderManagementSystem {
         let wallet = Wallet::new();
         // TODO: infer the coin from the `base_coin` field of instrument info.
@@ -63,7 +63,7 @@ impl OrderManagementSystem {
             from_strategy,
             from_order_handler,
             to_strategy,
-            order_handler: OrderHandler::new(),
+            order_gateway,
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
             inventory,
@@ -156,9 +156,9 @@ impl OrderManagementSystem {
         ) {
             Outcome::NewOrder(order) => {
                 let order_link_id = self.insert_new_order(&order);
-                self.order_handler.submit_order(&order, order_link_id)
+                self.order_gateway.submit_order(&order, order_link_id)
             }
-            Outcome::AmendOrder(order) => self.order_handler.amend_order(&order),
+            Outcome::AmendOrder(order) => self.order_gateway.amend_order(&order),
             Outcome::DoNothing => (),
         };
     }
@@ -223,7 +223,7 @@ impl OrderManagementSystem {
                         // NOTE: The new inventory is positive, therefore we can repay the borrowed
                         // money. It is assumed it is triggered less than 1
                         // time per second.
-                        self.order_handler.repay_liability(&self.coin);
+                        self.order_gateway.repay_liability(&self.coin);
                     }
                     self.avg_entry_price = avg_entry_price;
                     self.inventory = inventory;

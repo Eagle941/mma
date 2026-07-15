@@ -11,7 +11,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 
 use crate::bybit::utils::{generate_signature, get_base_url};
-use crate::{OrderAmendedBuilder, OrderBuilder};
+use crate::{OrderAmendedBuilder, OrderBuilder, OrderGateway};
 
 // TODO: Add automatic casting of `result` to various struct types like in bybit
 // library.
@@ -72,172 +72,6 @@ impl OrderHandler {
             recv_window,
             session,
         }
-    }
-
-    // TODO: introduce kill-switch when bot crashes or it's killed with ^c
-    #[log_execution_time]
-    pub fn cancel_all(&self) {
-        // TODO: identify more efficient methods than `serde`
-        // TODO: add support for all additional exchange non-mandatory parameters
-        let url = format!("{}/v5/order/cancel-all", self.base_url);
-        let time_ms = Utc::now().timestamp_millis().to_string();
-
-        let body = json!({
-            "category": "spot",
-        });
-        let signature = generate_signature(
-            &time_ms,
-            &self.api_key,
-            &self.recv_window,
-            &body.to_string(),
-            &self.api_secret,
-        )
-        .unwrap();
-        let request = self
-            .session
-            .post(url)
-            .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms)
-            .json(&body);
-        // NOTE: it is assumed this request won't fail
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-
-            // NOTE: error 999 is used because an order id is required, but there is no
-            // order id for cancel-all. I am not using an Option type to reduce the
-            // overhead.
-            Self::send_request(request, 999).await;
-
-            let duration = start.elapsed();
-            log::info!("Execution time of `cancel_all`: {:.2?}", duration);
-        });
-    }
-
-    #[log_execution_time]
-    pub fn amend_order(&self, order_builder: &OrderAmendedBuilder) {
-        // TODO: identify more efficient methods than `serde`
-        // TODO: add support for all additional exchange non-mandatory parameters
-        let url = format!("{}/v5/order/amend", self.base_url);
-        let time_ms = Utc::now().timestamp_millis().to_string();
-
-        // NOTE: always populate price and qty even if they don't change to allow the
-        // OMS to be synced up correctly.
-        let mut body = json!({
-            "category": "spot",
-            "symbol": order_builder.symbol,
-            "orderLinkId": order_builder.order_link_id.to_string(),
-        });
-        if order_builder.new_qty {
-            body["qty"] = json!(order_builder.qty);
-        }
-        if order_builder.new_price {
-            body["price"] = json!(order_builder.price);
-        }
-        let signature = generate_signature(
-            &time_ms,
-            &self.api_key,
-            &self.recv_window,
-            &body.to_string(),
-            &self.api_secret,
-        )
-        .unwrap();
-        let request = self
-            .session
-            .post(url)
-            .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms)
-            .json(&body);
-        let order_link_id = order_builder.order_link_id;
-        // TODO: move from HTTP request to WebSocket
-        // TODO: find a proper way to deal with failed orders
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-
-            Self::send_request(request, order_link_id).await;
-
-            let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
-        });
-    }
-
-    #[log_execution_time]
-    pub fn submit_order(&self, order_builder: &OrderBuilder, order_link_id: u64) {
-        // TODO: identify more efficient methods than `serde`
-        // TODO: add support for all additional exchange non-mandatory parameters
-        let url = format!("{}/v5/order/create", self.base_url);
-        let time_ms = Utc::now().timestamp_millis().to_string();
-
-        // TODO: add timeInForce parameter
-        let body = json!({
-            "orderLinkId": order_link_id.to_string(),
-            "category": "spot",
-            "isLeverage": 1,
-            "symbol": order_builder.symbol,
-            "side": order_builder.side,
-            "orderType": order_builder.order_type,
-            "qty": order_builder.qty.to_string(),
-            "price": order_builder.price,
-            "timeInForce": "PostOnly",
-            "smpType": "CancelBoth",
-            "marketUnit": "baseCoin"
-        });
-        let signature = generate_signature(
-            &time_ms,
-            &self.api_key,
-            &self.recv_window,
-            &body.to_string(),
-            &self.api_secret,
-        )
-        .unwrap();
-        let request = self
-            .session
-            .post(url)
-            .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms)
-            .json(&body);
-        // TODO: move from HTTP request to WebSocket
-        // TODO: find a proper way to deal with failed orders
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-
-            Self::send_request(request, order_link_id).await;
-
-            let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
-        });
-    }
-
-    #[log_execution_time]
-    pub fn repay_liability(&self, _coin: &str) {
-        let url = format!("{}/v5/account/quick-repayment", self.base_url);
-        let time_ms = Utc::now().timestamp_millis().to_string();
-
-        let signature = generate_signature(
-            &time_ms,
-            &self.api_key,
-            &self.recv_window,
-            &String::default(),
-            &self.api_secret,
-        )
-        .unwrap();
-        let request = self
-            .session
-            .post(url)
-            .header("X-BAPI-SIGN", signature)
-            .header("X-BAPI-TIMESTAMP", time_ms);
-        // TODO: move from HTTP request to WebSocket
-        // TODO: find a proper way to deal with failed orders
-        tokio::spawn(async move {
-            let start = std::time::Instant::now();
-
-            // NOTE: error 999 is used because an order id is required, but there is no
-            // order id for cancel-all. I am not using an Option type to reduce the
-            // overhead.
-            Self::send_request(request, 999).await;
-
-            let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
-        });
     }
 
     async fn send_request(request: RequestBuilder, order_link_id: u64) {
@@ -314,5 +148,173 @@ impl OrderHandler {
                 panic!("Failed to send order request {x}");
             }
         }
+    }
+}
+
+impl OrderGateway for OrderHandler {
+    #[log_execution_time]
+    fn submit_order(&self, order_builder: &OrderBuilder, order_link_id: u64) {
+        // TODO: identify more efficient methods than `serde`
+        // TODO: add support for all additional exchange non-mandatory parameters
+        let url = format!("{}/v5/order/create", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        // TODO: add timeInForce parameter
+        let body = json!({
+            "orderLinkId": order_link_id.to_string(),
+            "category": "spot",
+            "isLeverage": 1,
+            "symbol": order_builder.symbol,
+            "side": order_builder.side,
+            "orderType": order_builder.order_type,
+            "qty": order_builder.qty.to_string(),
+            "price": order_builder.price,
+            "timeInForce": "PostOnly",
+            "smpType": "CancelBoth",
+            "marketUnit": "baseCoin"
+        });
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
+        });
+    }
+
+    #[log_execution_time]
+    fn amend_order(&self, order_builder: &OrderAmendedBuilder) {
+        // TODO: identify more efficient methods than `serde`
+        // TODO: add support for all additional exchange non-mandatory parameters
+        let url = format!("{}/v5/order/amend", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        // NOTE: always populate price and qty even if they don't change to allow the
+        // OMS to be synced up correctly.
+        let mut body = json!({
+            "category": "spot",
+            "symbol": order_builder.symbol,
+            "orderLinkId": order_builder.order_link_id.to_string(),
+        });
+        if order_builder.new_qty {
+            body["qty"] = json!(order_builder.qty);
+        }
+        if order_builder.new_price {
+            body["price"] = json!(order_builder.price);
+        }
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
+        let order_link_id = order_builder.order_link_id;
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            Self::send_request(request, order_link_id).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
+        });
+    }
+
+    #[log_execution_time]
+    fn repay_liability(&self, _coin: &str) {
+        let url = format!("{}/v5/account/quick-repayment", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &String::default(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms);
+        // TODO: move from HTTP request to WebSocket
+        // TODO: find a proper way to deal with failed orders
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            // NOTE: error 999 is used because an order id is required, but there is no
+            // order id for cancel-all. I am not using an Option type to reduce the
+            // overhead.
+            Self::send_request(request, 999).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `send_request`: {:.2?}", duration);
+        });
+    }
+
+    // TODO: introduce kill-switch when bot crashes or it's killed with ^c
+    #[log_execution_time]
+    fn cancel_all(&self) {
+        // TODO: identify more efficient methods than `serde`
+        // TODO: add support for all additional exchange non-mandatory parameters
+        let url = format!("{}/v5/order/cancel-all", self.base_url);
+        let time_ms = Utc::now().timestamp_millis().to_string();
+
+        let body = json!({
+            "category": "spot",
+        });
+        let signature = generate_signature(
+            &time_ms,
+            &self.api_key,
+            &self.recv_window,
+            &body.to_string(),
+            &self.api_secret,
+        )
+        .unwrap();
+        let request = self
+            .session
+            .post(url)
+            .header("X-BAPI-SIGN", signature)
+            .header("X-BAPI-TIMESTAMP", time_ms)
+            .json(&body);
+        // NOTE: it is assumed this request won't fail
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            // NOTE: error 999 is used because an order id is required, but there is no
+            // order id for cancel-all. I am not using an Option type to reduce the
+            // overhead.
+            Self::send_request(request, 999).await;
+
+            let duration = start.elapsed();
+            log::info!("Execution time of `cancel_all`: {:.2?}", duration);
+        });
     }
 }

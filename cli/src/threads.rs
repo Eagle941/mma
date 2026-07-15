@@ -5,6 +5,7 @@ use std::{env, io};
 
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_queue::ArrayQueue;
+use exchange::bybit::order::OrderHandler;
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
 use exchange::{OrderBook, OrderBuilder, OrderMessages};
@@ -50,8 +51,13 @@ pub(super) fn create_oms_thread(
         .spawn(move || {
             let guard = runtime_handle.enter();
 
-            let mut oms =
-                OrderManagementSystem::new(from_strategy, from_order_handler, to_strategy);
+            let order_gateway = Box::new(OrderHandler::new());
+            let mut oms = OrderManagementSystem::new(
+                from_strategy,
+                from_order_handler,
+                to_strategy,
+                order_gateway,
+            );
             oms.cycle();
 
             drop(guard)
