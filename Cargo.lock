@@ -599,6 +599,7 @@ dependencies = [
  "log",
  "log-execution-time",
  "reqwest",
+ "rstest",
  "rust-bybit",
  "serde",
  "serde_json",

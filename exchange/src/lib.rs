@@ -152,16 +152,6 @@ impl OrderBuilder {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct OrderAmendedBuilder {
-    pub symbol: String,
-    pub order_link_id: u64,
-    pub qty: f64,
-    pub price: String,
-    pub new_price: bool,
-    pub new_qty: bool,
-}
-
 /// Dispatches order commands to an exchange.
 ///
 /// These methods confirm that a command was dispatched, not that the exchange
@@ -172,6 +162,16 @@ pub trait OrderGateway: std::fmt::Debug {
     fn amend_order(&self, order: &OrderAmendedBuilder);
     fn repay_liability(&self, coin: &str);
     fn cancel_all(&self);
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct OrderAmendedBuilder {
+    pub symbol: String,
+    pub order_link_id: u64,
+    pub qty: f64,
+    pub price: String,
+    pub new_price: bool,
+    pub new_qty: bool,
 }
 
 // TODO: Add order timestamps
@@ -223,4 +223,198 @@ pub struct OrderUpdate {
     // NOTE: this is the average price of the order execution
     pub filled_price: f64,
     pub updated_time: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[test]
+    fn level_from_orderbook_item_parses_price_and_size() {
+        let orderbook_item = OrderbookItem("0.567", "125.5");
+
+        let level = Level::from(&orderbook_item);
+
+        assert_eq!(level.price, 0.567);
+        assert_eq!(level.size, 125.5);
+    }
+
+    #[rstest]
+    #[case("0.566", 0.566)]
+    #[case("", f64::NAN)]
+    fn order_message_from_bybit_order_maps_order_update(
+        #[case] avg_price: &str,
+        #[case] expected_filled_price: f64,
+    ) {
+        let bybit_order = BybitOrder {
+            category: "spot",
+            order_id: "exchange-order-id",
+            order_link_id: "1234",
+            is_leverage: "0",
+            block_trade_id: "",
+            symbol: "ADAUSDT",
+            price: "0.567",
+            qty: "25.0",
+            side: "Buy",
+            position_idx: 0,
+            order_status: "New",
+            cancel_type: "",
+            reject_reason: "",
+            avg_price,
+            leaves_qty: "15.0",
+            leaves_value: "",
+            cum_exec_qty: "10.0",
+            cum_exec_value: "",
+            cum_exec_fee: "",
+            time_in_force: "PostOnly",
+            order_type: "Limit",
+            stop_order_type: "",
+            order_iv: "",
+            trigger_price: "",
+            take_profit: "",
+            stop_loss: "",
+            tp_trigger_by: "",
+            sl_trigger_by: "",
+            trigger_direction: 0,
+            trigger_by: "",
+            last_price_on_created: "",
+            reduce_only: false,
+            close_on_trigger: false,
+            created_time: "1773956505000",
+            updated_time: "1773956505537",
+        };
+
+        let message = OrderMessages::from(&bybit_order);
+
+        let OrderMessages::OrderUpdate(order) = message else {
+            panic!("expected an order update");
+        };
+        assert_eq!(order.order_link_id, 1234);
+        assert_eq!(order.order_status, OrderStatus::New);
+        assert_eq!(order.qty, 25.0);
+        assert_eq!(order.price, 0.567);
+        assert_eq!(order.filled_qty, 10.0);
+        if expected_filled_price.is_nan() {
+            // NOTE: NaN values can't be compared, hence the if-statement
+            assert!(order.filled_price.is_nan());
+        } else {
+            assert_eq!(order.filled_price, expected_filled_price);
+        }
+        assert_eq!(order.updated_time, 1773956505537);
+    }
+
+    #[rstest]
+    #[case("0.01", 0.01)]
+    #[case("", 0.0)]
+    fn order_message_from_execution_maps_execution_update(
+        #[case] exec_fee: &str,
+        #[case] expected_exec_fee: f64,
+    ) {
+        let execution = Execution {
+            category: "spot",
+            symbol: "ADAUSDT",
+            is_leverage: "0",
+            order_id: "exchange-order-id",
+            order_link_id: "1234",
+            side: "Sell",
+            order_price: "0.567",
+            order_qty: "25.0",
+            leaves_qty: "15.0",
+            order_type: "Limit",
+            stop_order_type: "",
+            exec_fee,
+            exec_id: "execution-id",
+            exec_price: "0.566",
+            exec_qty: "10.0",
+            exec_type: "Trade",
+            exec_value: "5.66",
+            exec_time: "1773956505537",
+            is_maker: true,
+            fee_rate: "0.001",
+            trade_iv: "",
+            mark_iv: "",
+            mark_price: "",
+            index_price: "",
+            underlying_price: "",
+            block_trade_id: "",
+        };
+
+        let message = OrderMessages::from(&execution);
+
+        let OrderMessages::ExecutionUpdate(order) = message else {
+            panic!("expected an execution update");
+        };
+        assert_eq!(order.order_link_id, 1234);
+        assert_eq!(order.order_id, "exchange-order-id");
+        assert_eq!(order.order_price, 0.567);
+        assert_eq!(order.order_side, OrderSide::Sell);
+        assert_eq!(order.exec_id, "execution-id");
+        assert_eq!(order.exec_ts, 1773956505537);
+        assert_eq!(order.exec_price, 0.566);
+        assert_eq!(order.exec_fee, expected_exec_fee);
+        assert_eq!(order.exec_qty, 10.0);
+        assert_eq!(order.remaining_qty, 15.0);
+    }
+
+    #[test]
+    fn order_builder_builds_submitted_order() {
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let order = order_builder.build(1234);
+
+        assert_eq!(order.order_link_id, 1234);
+        assert_eq!(order.order_status, OrderStatus::Submitted);
+        assert_eq!(order.symbol, order_builder.symbol);
+        assert_eq!(order.side, order_builder.side);
+        assert_eq!(order.order_type, order_builder.order_type);
+        assert_eq!(order.qty, order_builder.qty);
+        assert_eq!(order.price, 0.567);
+        assert_eq!(order.filled_qty, 0.0);
+        assert!(order.filled_price.is_nan());
+        assert_eq!(order.updated_time, 0);
+    }
+
+    #[rstest]
+    #[case(OrderStatus::Submitted, false)]
+    #[case(OrderStatus::New, true)]
+    #[case(OrderStatus::PartiallyFilled, true)]
+    #[case(OrderStatus::Untriggered, true)]
+    #[case(OrderStatus::Rejected, false)]
+    #[case(OrderStatus::PartiallyFilledCanceled, false)]
+    #[case(OrderStatus::Filled, false)]
+    #[case(OrderStatus::Cancelled, false)]
+    #[case(OrderStatus::Triggered, false)]
+    #[case(OrderStatus::Deactivated, false)]
+    fn order_status_is_open_identifies_exchange_confirmed_open_orders(
+        #[case] status: OrderStatus,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(status.is_open(), expected);
+    }
+
+    #[rstest]
+    #[case(OrderStatus::Submitted, true)]
+    #[case(OrderStatus::New, false)]
+    #[case(OrderStatus::PartiallyFilled, false)]
+    #[case(OrderStatus::Untriggered, false)]
+    #[case(OrderStatus::Rejected, true)]
+    #[case(OrderStatus::PartiallyFilledCanceled, true)]
+    #[case(OrderStatus::Filled, true)]
+    #[case(OrderStatus::Cancelled, true)]
+    #[case(OrderStatus::Triggered, true)]
+    #[case(OrderStatus::Deactivated, true)]
+    fn order_status_is_closed_identifies_non_open_orders(
+        #[case] status: OrderStatus,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(status.is_closed(), expected);
+    }
 }

@@ -28,6 +28,7 @@ triple_buffer = "8.1.1"
 
 [dev-dependencies]
 criterion.workspace = true
+rstest.workspace = true
 
 [[bench]]
 name = "order_benchmark"
