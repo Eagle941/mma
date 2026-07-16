@@ -260,7 +260,7 @@ mod tests {
 
     use assert_approx_eq::assert_approx_eq;
     use crossbeam_channel::unbounded;
-    use exchange::{OrderAmendedBuilder, OrderStatus, OrderType};
+    use exchange::{OrderAmendedBuilder, OrderStatus, OrderType, OrderUpdate};
     use rstest::rstest;
 
     use super::*;
@@ -369,11 +369,14 @@ mod tests {
         let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
         let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
         assert_eq!(stored_order.order_link_id, initial_order_link_id);
-        assert_eq!(stored_order.symbol, "ADAUSDT");
-        assert_eq!(stored_order.side, OrderSide::Buy);
-        assert_eq!(stored_order.order_type, OrderType::Limit);
-        assert_eq!(stored_order.qty, 25.0);
-        assert_eq!(stored_order.price, 0.567);
+        assert_eq!(stored_order.symbol, order_builder.symbol);
+        assert_eq!(stored_order.side, order_builder.side);
+        assert_eq!(stored_order.order_type, order_builder.order_type);
+        assert_eq!(stored_order.qty, order_builder.qty);
+        assert_eq!(
+            stored_order.price,
+            order_builder.price.parse::<f64>().unwrap()
+        );
 
         let submitted_orders = test_bench.order_gateway.submitted_orders();
         assert_eq!(submitted_orders.len(), 1);
@@ -414,6 +417,124 @@ mod tests {
     }
 
     #[test]
+    fn order_response_updates_existing_order() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench
+            .oms
+            .forward_orders(order_builder.clone(), &risk_policy);
+        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
+        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.order_link_id, initial_order_link_id);
+        assert_eq!(stored_order.symbol, order_builder.symbol);
+        assert_eq!(stored_order.side, order_builder.side);
+        assert_eq!(stored_order.order_type, order_builder.order_type);
+        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
+        assert_eq!(stored_order.qty, order_builder.qty);
+        assert_eq!(
+            stored_order.price,
+            order_builder.price.parse::<f64>().unwrap()
+        );
+        assert_eq!(stored_order.filled_qty, 0.0);
+        assert!(stored_order.filled_price.is_nan());
+        assert_eq!(stored_order.updated_time, 0);
+
+        let order_update = OrderUpdate {
+            order_link_id: initial_order_link_id,
+            order_status: OrderStatus::PartiallyFilled,
+            qty: 30.0,
+            price: 0.568,
+            filled_qty: 10.0,
+            filled_price: 0.5675,
+            updated_time: 1773956505537,
+        };
+        test_bench
+            .oms
+            .order_response(OrderMessages::OrderUpdate(order_update.clone()));
+
+        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
+        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.order_link_id, initial_order_link_id);
+        assert_eq!(stored_order.symbol, order_builder.symbol);
+        assert_eq!(stored_order.side, order_builder.side);
+        assert_eq!(stored_order.order_type, order_builder.order_type);
+        assert_eq!(stored_order.order_status, order_update.order_status);
+        assert_eq!(stored_order.qty, order_update.qty);
+        assert_eq!(stored_order.price, order_update.price);
+        assert_eq!(stored_order.filled_qty, order_update.filled_qty);
+        assert_eq!(stored_order.filled_price, order_update.filled_price);
+        assert_eq!(stored_order.updated_time, order_update.updated_time);
+    }
+
+    #[test]
+    fn order_response_ignores_unknown_order_update() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench
+            .oms
+            .forward_orders(order_builder.clone(), &risk_policy);
+        let initial_inventory = test_bench.oms.inventory;
+        let initial_avg_entry_price = test_bench.oms.avg_entry_price;
+        let initial_coin = test_bench.oms.coin.clone();
+        let initial_next_order_link_id = test_bench.oms.id_generator.load(Ordering::Relaxed);
+        let unknown_order_update = OrderUpdate {
+            order_link_id: 9999,
+            order_status: OrderStatus::Filled,
+            qty: 50.0,
+            price: 0.6,
+            filled_qty: 50.0,
+            filled_price: 0.6,
+            updated_time: 1773956505537,
+        };
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::OrderUpdate(unknown_order_update));
+
+        assert_eq!(test_bench.oms.orders.len(), 1);
+        assert_eq!(test_bench.oms.id_map.len(), 1);
+        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
+        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.order_link_id, initial_order_link_id);
+        assert_eq!(stored_order.symbol, order_builder.symbol);
+        assert_eq!(stored_order.side, order_builder.side);
+        assert_eq!(stored_order.order_type, order_builder.order_type);
+        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
+        assert_eq!(stored_order.qty, order_builder.qty);
+        assert_eq!(
+            stored_order.price,
+            order_builder.price.parse::<f64>().unwrap()
+        );
+        assert_eq!(stored_order.filled_qty, 0.0);
+        assert!(stored_order.filled_price.is_nan());
+        assert_eq!(stored_order.updated_time, 0);
+        assert_eq!(test_bench.oms.inventory, initial_inventory);
+        assert_eq!(test_bench.oms.avg_entry_price, initial_avg_entry_price);
+        assert_eq!(test_bench.oms.coin, initial_coin);
+        assert_eq!(
+            test_bench.oms.id_generator.load(Ordering::Relaxed),
+            initial_next_order_link_id
+        );
+        assert_eq!(test_bench.order_gateway.submitted_orders().len(), 1);
+    }
+
+    #[test]
     fn insert_new_order_stores_and_indexes_order() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
@@ -438,7 +559,10 @@ mod tests {
         assert_eq!(stored_order.side, order_builder.side);
         assert_eq!(stored_order.order_type, order_builder.order_type);
         assert_eq!(stored_order.qty, order_builder.qty);
-        assert_eq!(stored_order.price, 0.567);
+        assert_eq!(
+            stored_order.price,
+            order_builder.price.parse::<f64>().unwrap()
+        );
         assert_eq!(stored_order.order_status, OrderStatus::Submitted);
         assert_eq!(stored_order.filled_qty, 0.0);
         assert!(stored_order.filled_price.is_nan());
@@ -500,15 +624,15 @@ mod tests {
 
         let stored_buy = test_bench.oms.orders.get(buy_slab_index).unwrap();
         assert_eq!(stored_buy.order_link_id, buy_id);
-        assert_eq!(stored_buy.side, OrderSide::Buy);
-        assert_eq!(stored_buy.qty, 25.0);
-        assert_eq!(stored_buy.price, 0.567);
+        assert_eq!(stored_buy.side, buy_order.side);
+        assert_eq!(stored_buy.qty, buy_order.qty);
+        assert_eq!(stored_buy.price, buy_order.price.parse::<f64>().unwrap());
 
         let stored_sell = test_bench.oms.orders.get(sell_slab_index).unwrap();
         assert_eq!(stored_sell.order_link_id, sell_id);
-        assert_eq!(stored_sell.side, OrderSide::Sell);
-        assert_eq!(stored_sell.qty, 40.0);
-        assert_eq!(stored_sell.price, 0.575);
+        assert_eq!(stored_sell.side, sell_order.side);
+        assert_eq!(stored_sell.qty, sell_order.qty);
+        assert_eq!(stored_sell.price, sell_order.price.parse::<f64>().unwrap());
     }
 
     #[rstest]
