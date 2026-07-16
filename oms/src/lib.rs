@@ -294,9 +294,9 @@ mod tests {
         }
     }
 
-    struct TestRiskPolicy;
+    struct NewOrderRiskPolicy;
 
-    impl RiskPolicy for TestRiskPolicy {
+    impl RiskPolicy for NewOrderRiskPolicy {
         fn evaluate_order(
             &self,
             _orders: &Slab<Order>,
@@ -305,6 +305,20 @@ mod tests {
             _average_entry_price: f64,
         ) -> Outcome {
             Outcome::NewOrder(new_order)
+        }
+    }
+
+    struct DoNothingRiskPolicy;
+
+    impl RiskPolicy for DoNothingRiskPolicy {
+        fn evaluate_order(
+            &self,
+            _orders: &Slab<Order>,
+            _new_order: OrderBuilder,
+            _inventory: f64,
+            _average_entry_price: f64,
+        ) -> Outcome {
+            Outcome::DoNothing
         }
     }
 
@@ -345,7 +359,7 @@ mod tests {
         };
         assert!(test_bench.oms.orders.is_empty());
 
-        let risk_policy = TestRiskPolicy;
+        let risk_policy = NewOrderRiskPolicy;
         test_bench
             .oms
             .forward_orders(order_builder.clone(), &risk_policy);
@@ -366,6 +380,37 @@ mod tests {
         let (submitted_order, submitted_order_link_id) = &submitted_orders[0];
         assert_eq!(*submitted_order_link_id, initial_order_link_id);
         assert_eq!(submitted_order, &order_builder);
+    }
+
+    #[test]
+    fn forward_orders_does_not_change_state_when_risk_policy_does_nothing() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let initial_inventory = test_bench.oms.inventory;
+        let initial_avg_entry_price = test_bench.oms.avg_entry_price;
+        let initial_coin = test_bench.oms.coin.clone();
+        let initial_next_order_link_id = test_bench.oms.id_generator.load(Ordering::Relaxed);
+
+        let risk_policy = DoNothingRiskPolicy;
+        test_bench.oms.forward_orders(order_builder, &risk_policy);
+
+        assert!(test_bench.oms.orders.is_empty());
+        assert!(test_bench.oms.id_map.is_empty());
+        assert_eq!(test_bench.oms.inventory, initial_inventory);
+        assert_eq!(test_bench.oms.avg_entry_price, initial_avg_entry_price);
+        assert_eq!(test_bench.oms.coin, initial_coin);
+        assert_eq!(
+            test_bench.oms.id_generator.load(Ordering::Relaxed),
+            initial_next_order_link_id
+        );
+        assert!(test_bench.order_gateway.submitted_orders().is_empty());
     }
 
     #[test]
