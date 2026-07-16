@@ -126,7 +126,7 @@ impl<'a> From<&Execution<'a>> for OrderMessages {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct OrderBuilder {
     pub symbol: String,
     pub side: OrderSide,

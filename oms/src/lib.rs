@@ -255,6 +255,9 @@ impl OrderManagementSystem {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Ref, RefCell};
+    use std::rc::Rc;
+
     use assert_approx_eq::assert_approx_eq;
     use crossbeam_channel::unbounded;
     use exchange::{OrderAmendedBuilder, OrderStatus, OrderType};
@@ -262,38 +265,113 @@ mod tests {
 
     use super::*;
 
-    #[derive(Debug)]
-    struct TestOrderGateway;
-
+    #[derive(Clone, Debug, Default)]
+    struct TestOrderGateway {
+        submitted: Rc<RefCell<Vec<(OrderBuilder, u64)>>>,
+    }
+    impl TestOrderGateway {
+        fn submitted_orders(&self) -> Ref<'_, Vec<(OrderBuilder, u64)>> {
+            self.submitted.borrow()
+        }
+    }
     impl OrderGateway for TestOrderGateway {
-        fn submit_order(&self, _order: &OrderBuilder, _order_link_id: u64) {}
+        fn submit_order(&self, order: &OrderBuilder, order_link_id: u64) {
+            self.submitted
+                .borrow_mut()
+                .push((order.clone(), order_link_id));
+        }
 
-        fn amend_order(&self, _order: &OrderAmendedBuilder) {}
+        fn amend_order(&self, _order: &OrderAmendedBuilder) {
+            todo!()
+        }
 
-        fn repay_liability(&self, _coin: &str) {}
+        fn repay_liability(&self, _coin: &str) {
+            todo!()
+        }
 
-        fn cancel_all(&self) {}
+        fn cancel_all(&self) {
+            todo!()
+        }
     }
 
-    fn test_oms(initial_order_link_id: u64) -> OrderManagementSystem {
-        let (_, from_strategy) = unbounded();
-        let (_, from_order_handler) = unbounded();
-        let to_strategy = Arc::new(ArrayQueue::new(1));
-        let config = OmsConfig::new("ADA", 0.0, 0.0, initial_order_link_id);
+    struct TestRiskPolicy;
 
-        OrderManagementSystem::new(
-            from_strategy,
-            from_order_handler,
-            to_strategy,
-            Box::new(TestOrderGateway),
-            config,
-        )
+    impl RiskPolicy for TestRiskPolicy {
+        fn evaluate_order(
+            &self,
+            _orders: &Slab<Order>,
+            new_order: OrderBuilder,
+            _inventory: f64,
+            _average_entry_price: f64,
+        ) -> Outcome {
+            Outcome::NewOrder(new_order)
+        }
+    }
+
+    struct OmsTestBench {
+        oms: OrderManagementSystem,
+        order_gateway: Box<TestOrderGateway>,
+    }
+    impl OmsTestBench {
+        fn new(initial_order_link_id: u64) -> OmsTestBench {
+            let (_, from_strategy) = unbounded();
+            let (_, from_order_handler) = unbounded();
+            let to_strategy = Arc::new(ArrayQueue::new(1));
+            let config = OmsConfig::new("ADA", 0.0, 0.0, initial_order_link_id);
+            let order_gateway = Box::new(TestOrderGateway::default());
+
+            let oms = OrderManagementSystem::new(
+                from_strategy,
+                from_order_handler,
+                to_strategy,
+                order_gateway.clone(),
+                config,
+            );
+
+            OmsTestBench { oms, order_gateway }
+        }
     }
 
     #[test]
-    fn insert_new_order_into_empty_oms() {
+    fn forward_orders_stores_and_submits_new_order() {
         let initial_order_link_id = 1000;
-        let mut oms = test_oms(initial_order_link_id);
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        assert!(test_bench.oms.orders.is_empty());
+
+        let risk_policy = TestRiskPolicy;
+        test_bench
+            .oms
+            .forward_orders(order_builder.clone(), &risk_policy);
+
+        assert_eq!(test_bench.oms.orders.len(), 1);
+        assert_eq!(test_bench.oms.id_map.len(), 1);
+        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
+        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
+        assert_eq!(stored_order.order_link_id, initial_order_link_id);
+        assert_eq!(stored_order.symbol, "ADAUSDT");
+        assert_eq!(stored_order.side, OrderSide::Buy);
+        assert_eq!(stored_order.order_type, OrderType::Limit);
+        assert_eq!(stored_order.qty, 25.0);
+        assert_eq!(stored_order.price, 0.567);
+
+        let submitted_orders = test_bench.order_gateway.submitted_orders();
+        assert_eq!(submitted_orders.len(), 1);
+        let (submitted_order, submitted_order_link_id) = &submitted_orders[0];
+        assert_eq!(*submitted_order_link_id, initial_order_link_id);
+        assert_eq!(submitted_order, &order_builder);
+    }
+
+    #[test]
+    fn insert_new_order_stores_and_indexes_order() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
         let order_builder = OrderBuilder {
             symbol: "ADAUSDT".to_string(),
             side: OrderSide::Buy,
@@ -302,32 +380,15 @@ mod tests {
             price: "0.567".to_string(),
         };
 
-        let order_link_id = oms.insert_new_order(&order_builder);
+        let order_link_id = test_bench.oms.insert_new_order(&order_builder);
 
         assert_eq!(order_link_id, initial_order_link_id);
-        assert_eq!(oms.orders.len(), 1);
-        assert_eq!(oms.id_map.len(), 1);
+        assert_eq!(test_bench.oms.orders.len(), 1);
+        assert_eq!(test_bench.oms.id_map.len(), 1);
 
-        let slab_index = *oms.id_map.get(&order_link_id).unwrap();
-        let stored_order = oms.orders.get(slab_index).unwrap();
+        let slab_index = *test_bench.oms.id_map.get(&order_link_id).unwrap();
+        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
         assert_eq!(stored_order.order_link_id, order_link_id);
-    }
-
-    #[test]
-    fn insert_new_order_stores_builder_values() {
-        let mut oms = test_oms(1000);
-        let order_builder = OrderBuilder {
-            symbol: "ADAUSDT".to_string(),
-            side: OrderSide::Buy,
-            order_type: OrderType::Limit,
-            qty: 25.0,
-            price: "0.567".to_string(),
-        };
-
-        let order_link_id = oms.insert_new_order(&order_builder);
-
-        let slab_index = *oms.id_map.get(&order_link_id).unwrap();
-        let stored_order = oms.orders.get(slab_index).unwrap();
         assert_eq!(stored_order.symbol, order_builder.symbol);
         assert_eq!(stored_order.side, order_builder.side);
         assert_eq!(stored_order.order_type, order_builder.order_type);
@@ -341,7 +402,7 @@ mod tests {
 
     #[test]
     fn insert_new_order_generates_distinct_sequential_ids() {
-        let mut oms = test_oms(1000);
+        let mut test_bench = OmsTestBench::new(1000);
         let order_builder = OrderBuilder {
             symbol: "ADAUSDT".to_string(),
             side: OrderSide::Buy,
@@ -350,23 +411,26 @@ mod tests {
             price: "0.567".to_string(),
         };
 
-        let first_id = oms.insert_new_order(&order_builder);
-        let second_id = oms.insert_new_order(&order_builder);
-        let third_id = oms.insert_new_order(&order_builder);
+        let first_id = test_bench.oms.insert_new_order(&order_builder);
+        let second_id = test_bench.oms.insert_new_order(&order_builder);
+        let third_id = test_bench.oms.insert_new_order(&order_builder);
 
         assert_eq!([first_id, second_id, third_id], [1000, 1001, 1002]);
-        assert_eq!(oms.orders.len(), 3);
-        assert_eq!(oms.id_map.len(), 3);
+        assert_eq!(test_bench.oms.orders.len(), 3);
+        assert_eq!(test_bench.oms.id_map.len(), 3);
 
         for order_link_id in [first_id, second_id, third_id] {
-            let slab_index = *oms.id_map.get(&order_link_id).unwrap();
-            assert_eq!(oms.orders[slab_index].order_link_id, order_link_id);
+            let slab_index = *test_bench.oms.id_map.get(&order_link_id).unwrap();
+            assert_eq!(
+                test_bench.oms.orders[slab_index].order_link_id,
+                order_link_id
+            );
         }
     }
 
     #[test]
     fn insert_new_order_keeps_distinct_orders_correctly_indexed() {
-        let mut oms = test_oms(1000);
+        let mut test_bench = OmsTestBench::new(1000);
         let buy_order = OrderBuilder {
             symbol: "ADAUSDT".to_string(),
             side: OrderSide::Buy,
@@ -382,20 +446,20 @@ mod tests {
             price: "0.575".to_string(),
         };
 
-        let buy_id = oms.insert_new_order(&buy_order);
-        let sell_id = oms.insert_new_order(&sell_order);
+        let buy_id = test_bench.oms.insert_new_order(&buy_order);
+        let sell_id = test_bench.oms.insert_new_order(&sell_order);
 
-        let buy_slab_index = *oms.id_map.get(&buy_id).unwrap();
-        let sell_slab_index = *oms.id_map.get(&sell_id).unwrap();
+        let buy_slab_index = *test_bench.oms.id_map.get(&buy_id).unwrap();
+        let sell_slab_index = *test_bench.oms.id_map.get(&sell_id).unwrap();
         assert_ne!(buy_slab_index, sell_slab_index);
 
-        let stored_buy = oms.orders.get(buy_slab_index).unwrap();
+        let stored_buy = test_bench.oms.orders.get(buy_slab_index).unwrap();
         assert_eq!(stored_buy.order_link_id, buy_id);
         assert_eq!(stored_buy.side, OrderSide::Buy);
         assert_eq!(stored_buy.qty, 25.0);
         assert_eq!(stored_buy.price, 0.567);
 
-        let stored_sell = oms.orders.get(sell_slab_index).unwrap();
+        let stored_sell = test_bench.oms.orders.get(sell_slab_index).unwrap();
         assert_eq!(stored_sell.order_link_id, sell_id);
         assert_eq!(stored_sell.side, OrderSide::Sell);
         assert_eq!(stored_sell.qty, 40.0);
