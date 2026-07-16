@@ -352,6 +352,39 @@ mod tests {
     }
 
     #[test]
+    fn new_initializes_oms_from_non_default_config() {
+        let (_, from_strategy) = unbounded();
+        let (_, from_order_handler) = unbounded();
+        let to_strategy = Arc::new(ArrayQueue::new(1));
+        let order_gateway = Box::new(TestOrderGateway::default());
+        let coin = "BTC";
+        let inventory = 12.5;
+        let avg_entry_price = 67_500.0;
+        let initial_order_link_id = 42;
+        let config = OmsConfig::new(coin, inventory, avg_entry_price, initial_order_link_id);
+
+        let oms = OrderManagementSystem::new(
+            from_strategy,
+            from_order_handler,
+            to_strategy,
+            order_gateway,
+            config,
+        );
+
+        assert_eq!(oms.coin, coin);
+        assert_eq!(oms.inventory, inventory);
+        assert_eq!(oms.avg_entry_price, avg_entry_price);
+        assert_eq!(
+            oms.id_generator.load(Ordering::Relaxed),
+            initial_order_link_id
+        );
+        assert!(oms.orders.is_empty());
+        assert!(oms.id_map.is_empty());
+        assert_eq!(oms.to_strategy.pop(), Some(inventory));
+        assert!(oms.to_strategy.is_empty());
+    }
+
+    #[test]
     fn forward_orders_stores_and_submits_new_order() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
@@ -746,5 +779,42 @@ mod tests {
             order_side,
         );
         assert_approx_eq!(new_metrics.0, expected_avg_entry_price);
+    }
+
+    #[rstest]
+    #[case(0.0, 22.0, 0.01, OrderSide::Buy, 21.99)]
+    #[case(0.0, 22.0, 0.01, OrderSide::Sell, -22.0)]
+    #[case(50.0, 22.0, 0.01, OrderSide::Buy, 71.99)]
+    #[case(50.0, 22.0, 0.01, OrderSide::Sell, 28.0)]
+    #[case(10.0, 22.0, 0.0, OrderSide::Sell, -12.0)]
+    #[case(-50.0, 22.0, 0.01, OrderSide::Sell, -72.0)]
+    #[case(-50.0, 22.0, 0.01, OrderSide::Buy, -28.01)]
+    #[case(-10.0, 22.0, 0.01, OrderSide::Buy, 11.99)]
+    #[case(22.0, 22.0, 0.0, OrderSide::Sell, 0.0)]
+    #[case(-22.0, 22.0, 0.0, OrderSide::Buy, 0.0)]
+    fn test_inventory(
+        #[case] inventory: f64,
+        #[case] exec_qty: f64,
+        #[case] exec_fee: f64,
+        #[case] order_side: OrderSide,
+        #[case] expected_inventory: f64,
+    ) {
+        let execution_update = OrderExecution {
+            order_link_id: 1234,
+            exec_price: 0.567,
+            exec_fee,
+            exec_qty,
+            remaining_qty: 50.0,
+            exec_id: "abcd".to_string(),
+            exec_ts: 1773956505537,
+            order_id: "1773956505537".to_string(),
+            order_price: 0.567,
+            order_side,
+        };
+
+        let new_metrics =
+            OrderManagementSystem::update_metrics(1.0, inventory, &execution_update, order_side);
+
+        assert_approx_eq!(new_metrics.1, expected_inventory);
     }
 }
