@@ -50,7 +50,7 @@ fn load_oms_config() -> OmsConfig {
     let avg_entry_price = if inventory == 0.0 {
         0.0
     } else {
-        Trades::factory().price
+        Trades::factory().last_price
     };
     let next_order_link_id = SystemTime::now()
         .duration_since(UNIX_EPOCH)

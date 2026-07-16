@@ -112,7 +112,7 @@ impl Info {
 pub struct Trades {
     base_url: String,
     pub symbol: String,
-    pub price: f64,
+    pub last_price: f64,
 }
 impl Trades {
     pub fn new(symbol: String) -> Self {
@@ -120,7 +120,7 @@ impl Trades {
         let mut trades = Trades {
             base_url,
             symbol,
-            price: 0.0,
+            last_price: 0.0,
         };
         trades.get_trades();
         log::info!("{trades:#?}");
@@ -156,7 +156,7 @@ impl Trades {
                     if content["retCode"].as_i64().unwrap() == 0 {
                         if let Some(s) = content["result"]["list"].as_array().unwrap().iter().next()
                         {
-                            self.price = f64::from_str(s["price"].as_str().unwrap()).unwrap();
+                            self.last_price = f64::from_str(s["price"].as_str().unwrap()).unwrap();
                             return;
                         }
                         panic!("Symbol {} not found in recent-trade response.", self.symbol);
