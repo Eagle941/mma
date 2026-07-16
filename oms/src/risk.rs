@@ -9,20 +9,33 @@ pub enum Outcome {
     DoNothing,
 }
 
+pub trait RiskPolicy {
+    fn evaluate_order(
+        &self,
+        orders: &Slab<Order>,
+        new_order: OrderBuilder,
+        inventory: f64,
+        average_entry_price: f64,
+    ) -> Outcome;
+}
+
 // NOTE: could be dynamic
 const MAX_INVENTORY: f64 = 500.0; // Quantity
 const MIN_INVENTORY: f64 = -500.0; // Quantity
 
 // TODO: This file may be moved to a dedicated library
-pub struct RiskManager();
+#[derive(Default)]
+pub struct RiskManager;
 impl RiskManager {
     fn get_existing_order(orders: &Slab<Order>, side: OrderSide) -> Option<(usize, &Order)> {
         orders
             .iter()
             .find(|(_, o)| o.order_status.is_open() && side == o.side)
     }
-
-    pub fn submit_order(
+}
+impl RiskPolicy for RiskManager {
+    fn evaluate_order(
+        &self,
         orders: &Slab<Order>,
         new_order: OrderBuilder,
         inventory: f64,

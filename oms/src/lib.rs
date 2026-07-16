@@ -9,7 +9,7 @@ use log::{info, warn};
 use rustc_hash::FxHashMap;
 use slab::Slab;
 
-use crate::risk::{Outcome, RiskManager};
+use crate::risk::{Outcome, RiskManager, RiskPolicy};
 
 pub mod risk;
 
@@ -83,12 +83,14 @@ impl OrderManagementSystem {
     }
 
     pub fn cycle(&mut self) {
+        let risk_manager = RiskManager;
+
         loop {
             crossbeam_channel::select! {
                 recv(self.from_strategy) -> msg => {
                     if let Ok(order_builder) = msg {
                         info!("Received order {:?}", order_builder.side);
-                        self.forward_orders(order_builder);
+                        self.forward_orders(order_builder, &risk_manager);
                     }
                 },
                 recv(self.from_order_handler) -> msg => {
@@ -100,7 +102,12 @@ impl OrderManagementSystem {
         }
     }
 
+    /// This function generates and assigns a new order link ID and stores the
+    /// new order.
+    /// Returns the assigned order link ID.
     fn insert_new_order(&mut self, order: &OrderBuilder) -> u64 {
+        // TODO: Prevent counter overflow from reusing an order link ID and
+        // overwriting its existing `id_map` entry.
         let next_order_link_id = self.id_generator.fetch_add(1, Ordering::Relaxed);
         let entry = self.orders.vacant_entry();
         let slab_index = entry.key();
@@ -154,8 +161,8 @@ impl OrderManagementSystem {
 
     /// This function is responsible for receiving the order commands from the
     /// strategy and forwarding them to the exchange.
-    pub fn forward_orders(&mut self, order_builder: OrderBuilder) {
-        match RiskManager::submit_order(
+    pub fn forward_orders(&mut self, order_builder: OrderBuilder, risk_policy: &dyn RiskPolicy) {
+        match risk_policy.evaluate_order(
             &self.orders,
             order_builder,
             self.inventory,
@@ -355,6 +362,44 @@ mod tests {
             let slab_index = *oms.id_map.get(&order_link_id).unwrap();
             assert_eq!(oms.orders[slab_index].order_link_id, order_link_id);
         }
+    }
+
+    #[test]
+    fn insert_new_order_keeps_distinct_orders_correctly_indexed() {
+        let mut oms = test_oms(1000);
+        let buy_order = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let sell_order = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Sell,
+            order_type: OrderType::Limit,
+            qty: 40.0,
+            price: "0.575".to_string(),
+        };
+
+        let buy_id = oms.insert_new_order(&buy_order);
+        let sell_id = oms.insert_new_order(&sell_order);
+
+        let buy_slab_index = *oms.id_map.get(&buy_id).unwrap();
+        let sell_slab_index = *oms.id_map.get(&sell_id).unwrap();
+        assert_ne!(buy_slab_index, sell_slab_index);
+
+        let stored_buy = oms.orders.get(buy_slab_index).unwrap();
+        assert_eq!(stored_buy.order_link_id, buy_id);
+        assert_eq!(stored_buy.side, OrderSide::Buy);
+        assert_eq!(stored_buy.qty, 25.0);
+        assert_eq!(stored_buy.price, 0.567);
+
+        let stored_sell = oms.orders.get(sell_slab_index).unwrap();
+        assert_eq!(stored_sell.order_link_id, sell_id);
+        assert_eq!(stored_sell.side, OrderSide::Sell);
+        assert_eq!(stored_sell.qty, 40.0);
+        assert_eq!(stored_sell.price, 0.575);
     }
 
     #[rstest]
