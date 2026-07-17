@@ -170,7 +170,7 @@ impl OrderManagementSystem {
                     return;
                 };
                 // NOTE: assuming order exists already!
-                if let Some(_) = self.orders.get_mut(*slab_id) {
+                if self.orders.contains(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
                     info!(
@@ -208,7 +208,7 @@ impl OrderManagementSystem {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Ref, RefCell};
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use assert_approx_eq::assert_approx_eq;
@@ -230,12 +230,29 @@ mod tests {
         repaid_coins: Rc<RefCell<Vec<String>>>,
     }
     impl TestOrderGateway {
-        fn submitted_orders(&self) -> Ref<'_, Vec<(OrderBuilder, u64)>> {
-            self.submitted.borrow()
+        fn assert_submitted_once(
+            &self,
+            expected_order: &OrderBuilder,
+            expected_order_link_id: u64,
+        ) {
+            let submitted = self.submitted.borrow();
+            assert_eq!(
+                submitted.as_slice(),
+                &[(expected_order.clone(), expected_order_link_id)]
+            );
         }
 
-        fn repaid_calls(&self) -> usize {
-            self.repaid_coins.borrow().len()
+        fn assert_no_submissions(&self) {
+            assert!(self.submitted.borrow().is_empty());
+        }
+
+        fn assert_repaid_once(&self, expected_coin: &str) {
+            let repaid_coins = self.repaid_coins.borrow();
+            assert_eq!(repaid_coins.as_slice(), &[expected_coin]);
+        }
+
+        fn assert_no_repayments(&self) {
+            assert!(self.repaid_coins.borrow().is_empty());
         }
     }
     impl OrderGateway for TestOrderGateway {
@@ -311,6 +328,107 @@ mod tests {
 
             OmsTestBench { oms, order_gateway }
         }
+
+        fn stored_order(&self, order_link_id: u64) -> &Order {
+            let slab_index = self
+                .oms
+                .id_map
+                .get(&order_link_id)
+                .expect("order link ID should be indexed");
+
+            self.oms
+                .orders
+                .get(*slab_index)
+                .expect("indexed order should exist in the slab")
+        }
+
+        fn submit_new_order(&mut self, order: &OrderBuilder) -> u64 {
+            let order_link_id = self.oms.id_generator.load(Ordering::Relaxed);
+            self.oms.forward_orders(order.clone(), &NewOrderRiskPolicy);
+            order_link_id
+        }
+
+        fn assert_metrics(&self, expected_inventory: f64, expected_average_entry_price: f64) {
+            assert_approx_eq!(self.oms.metrics.inventory(), expected_inventory);
+            assert_approx_eq!(
+                self.oms.metrics.average_entry_price(),
+                expected_average_entry_price
+            );
+        }
+
+        fn assert_published_inventory(&self, expected_inventory: f64) {
+            let published_inventory = self
+                .oms
+                .to_strategy
+                .pop()
+                .expect("OMS should publish inventory");
+            assert_approx_eq!(published_inventory, expected_inventory);
+            assert!(
+                self.oms.to_strategy.is_empty(),
+                "OMS should publish only the latest inventory"
+            );
+        }
+    }
+
+    fn execution_update(
+        order_link_id: u64,
+        side: OrderSide,
+        price: f64,
+        quantity: f64,
+        fee: f64,
+    ) -> OrderExecution {
+        OrderExecution {
+            order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: price,
+            order_side: side,
+            exec_id: "execution-id".to_string(),
+            exec_ts: 1_773_956_505_537,
+            exec_price: price,
+            exec_fee: fee,
+            exec_qty: quantity,
+            remaining_qty: 0.0,
+        }
+    }
+
+    fn assert_order_matches_builder(order: &Order, order_link_id: u64, builder: &OrderBuilder) {
+        assert_eq!(order.order_link_id, order_link_id);
+        assert_eq!(order.symbol, builder.symbol);
+        assert_eq!(order.side, builder.side);
+        assert_eq!(order.order_type, builder.order_type);
+        assert_eq!(order.qty, builder.qty);
+        assert_eq!(
+            order.price,
+            builder
+                .price
+                .parse::<f64>()
+                .expect("test order price should be valid")
+        );
+    }
+
+    fn assert_submitted_order_matches_builder(
+        order: &Order,
+        order_link_id: u64,
+        builder: &OrderBuilder,
+    ) {
+        assert_order_matches_builder(order, order_link_id, builder);
+        assert_eq!(order.order_status, OrderStatus::Submitted);
+        assert_eq!(order.filled_qty, 0.0);
+        assert!(order.filled_price.is_nan());
+        assert_eq!(order.updated_time, 0);
+    }
+
+    fn assert_order_matches_update(order: &Order, builder: &OrderBuilder, update: &OrderUpdate) {
+        assert_eq!(order.order_link_id, update.order_link_id);
+        assert_eq!(order.symbol, builder.symbol);
+        assert_eq!(order.side, builder.side);
+        assert_eq!(order.order_type, builder.order_type);
+        assert_eq!(order.order_status, update.order_status);
+        assert_eq!(order.qty, update.qty);
+        assert_eq!(order.price, update.price);
+        assert_eq!(order.filled_qty, update.filled_qty);
+        assert_eq!(order.filled_price, update.filled_price);
+        assert_eq!(order.updated_time, update.updated_time);
     }
 
     #[test]
@@ -359,30 +477,20 @@ mod tests {
         };
         assert!(test_bench.oms.orders.is_empty());
 
-        let risk_policy = NewOrderRiskPolicy;
         test_bench
             .oms
-            .forward_orders(order_builder.clone(), &risk_policy);
+            .forward_orders(order_builder.clone(), &NewOrderRiskPolicy);
 
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
-        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
-        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
-        assert_eq!(stored_order.order_link_id, initial_order_link_id);
-        assert_eq!(stored_order.symbol, order_builder.symbol);
-        assert_eq!(stored_order.side, order_builder.side);
-        assert_eq!(stored_order.order_type, order_builder.order_type);
-        assert_eq!(stored_order.qty, order_builder.qty);
-        assert_eq!(
-            stored_order.price,
-            order_builder.price.parse::<f64>().unwrap()
+        assert_submitted_order_matches_builder(
+            test_bench.stored_order(initial_order_link_id),
+            initial_order_link_id,
+            &order_builder,
         );
-
-        let submitted_orders = test_bench.order_gateway.submitted_orders();
-        assert_eq!(submitted_orders.len(), 1);
-        let (submitted_order, submitted_order_link_id) = &submitted_orders[0];
-        assert_eq!(*submitted_order_link_id, initial_order_link_id);
-        assert_eq!(submitted_order, &order_builder);
+        test_bench
+            .order_gateway
+            .assert_submitted_once(&order_builder, initial_order_link_id);
     }
 
     #[test]
@@ -401,8 +509,9 @@ mod tests {
         let initial_coin = test_bench.oms.coin.clone();
         let initial_next_order_link_id = test_bench.oms.id_generator.load(Ordering::Relaxed);
 
-        let risk_policy = DoNothingRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
+        test_bench
+            .oms
+            .forward_orders(order_builder, &DoNothingRiskPolicy);
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
@@ -416,7 +525,7 @@ mod tests {
             test_bench.oms.id_generator.load(Ordering::Relaxed),
             initial_next_order_link_id
         );
-        assert!(test_bench.order_gateway.submitted_orders().is_empty());
+        test_bench.order_gateway.assert_no_submissions();
     }
 
     #[test]
@@ -430,25 +539,12 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench
-            .oms
-            .forward_orders(order_builder.clone(), &risk_policy);
-        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
-        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
-        assert_eq!(stored_order.order_link_id, initial_order_link_id);
-        assert_eq!(stored_order.symbol, order_builder.symbol);
-        assert_eq!(stored_order.side, order_builder.side);
-        assert_eq!(stored_order.order_type, order_builder.order_type);
-        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
-        assert_eq!(stored_order.qty, order_builder.qty);
-        assert_eq!(
-            stored_order.price,
-            order_builder.price.parse::<f64>().unwrap()
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        assert_submitted_order_matches_builder(
+            test_bench.stored_order(order_link_id),
+            order_link_id,
+            &order_builder,
         );
-        assert_eq!(stored_order.filled_qty, 0.0);
-        assert!(stored_order.filled_price.is_nan());
-        assert_eq!(stored_order.updated_time, 0);
 
         let order_update = OrderUpdate {
             order_link_id: initial_order_link_id,
@@ -463,18 +559,11 @@ mod tests {
             .oms
             .order_response(OrderMessages::OrderUpdate(order_update.clone()));
 
-        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
-        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
-        assert_eq!(stored_order.order_link_id, initial_order_link_id);
-        assert_eq!(stored_order.symbol, order_builder.symbol);
-        assert_eq!(stored_order.side, order_builder.side);
-        assert_eq!(stored_order.order_type, order_builder.order_type);
-        assert_eq!(stored_order.order_status, order_update.order_status);
-        assert_eq!(stored_order.qty, order_update.qty);
-        assert_eq!(stored_order.price, order_update.price);
-        assert_eq!(stored_order.filled_qty, order_update.filled_qty);
-        assert_eq!(stored_order.filled_price, order_update.filled_price);
-        assert_eq!(stored_order.updated_time, order_update.updated_time);
+        assert_order_matches_update(
+            test_bench.stored_order(order_link_id),
+            &order_builder,
+            &order_update,
+        );
     }
 
     #[test]
@@ -488,10 +577,7 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench
-            .oms
-            .forward_orders(order_builder.clone(), &risk_policy);
+        let order_link_id = test_bench.submit_new_order(&order_builder);
         let initial_inventory = test_bench.oms.metrics.inventory();
         let initial_avg_entry_price = test_bench.oms.metrics.average_entry_price();
         let initial_coin = test_bench.oms.coin.clone();
@@ -512,50 +598,27 @@ mod tests {
 
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
-        let slab_index = *test_bench.oms.id_map.get(&initial_order_link_id).unwrap();
-        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
-        assert_eq!(stored_order.order_link_id, initial_order_link_id);
-        assert_eq!(stored_order.symbol, order_builder.symbol);
-        assert_eq!(stored_order.side, order_builder.side);
-        assert_eq!(stored_order.order_type, order_builder.order_type);
-        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
-        assert_eq!(stored_order.qty, order_builder.qty);
-        assert_eq!(
-            stored_order.price,
-            order_builder.price.parse::<f64>().unwrap()
+        assert_submitted_order_matches_builder(
+            test_bench.stored_order(order_link_id),
+            order_link_id,
+            &order_builder,
         );
-        assert_eq!(stored_order.filled_qty, 0.0);
-        assert!(stored_order.filled_price.is_nan());
-        assert_eq!(stored_order.updated_time, 0);
-        assert_eq!(test_bench.oms.metrics.inventory(), initial_inventory);
-        assert_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            initial_avg_entry_price
-        );
+        test_bench.assert_metrics(initial_inventory, initial_avg_entry_price);
         assert_eq!(test_bench.oms.coin, initial_coin);
         assert_eq!(
             test_bench.oms.id_generator.load(Ordering::Relaxed),
             initial_next_order_link_id
         );
-        assert_eq!(test_bench.order_gateway.submitted_orders().len(), 1);
+        test_bench
+            .order_gateway
+            .assert_submitted_once(&order_builder, order_link_id);
     }
 
     #[test]
     fn order_response_ignores_unknown_execution_update() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
-        let execution_update = OrderExecution {
-            order_link_id: 9999,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Buy,
-            exec_id: "execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.566,
-            exec_fee: 0.01,
-            exec_qty: 10.0,
-            remaining_qty: 15.0,
-        };
+        let execution_update = execution_update(9999, OrderSide::Buy, 0.566, 10.0, 0.01);
 
         test_bench
             .oms
@@ -563,8 +626,7 @@ mod tests {
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
-        assert_eq!(test_bench.oms.metrics.inventory(), 0.0);
-        assert_eq!(test_bench.oms.metrics.average_entry_price(), 0.0);
+        test_bench.assert_metrics(0.0, 0.0);
         assert_eq!(
             test_bench.oms.id_generator.load(Ordering::Relaxed),
             initial_order_link_id
@@ -582,38 +644,20 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(0.0));
-        let execution_update = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Buy,
-            exec_id: "execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.566,
-            exec_fee: 0.01,
-            exec_qty: 10.0,
-            remaining_qty: 15.0,
-        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(0.0);
+        let execution_update = execution_update(order_link_id, OrderSide::Buy, 0.566, 10.0, 0.01);
 
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
-        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
-        assert_approx_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            execution_update.exec_price
-        );
-        let published_inventory = test_bench.oms.to_strategy.pop().unwrap();
-        assert_approx_eq!(published_inventory, expected_inventory);
-        assert!(test_bench.oms.to_strategy.is_empty());
+        test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
+        test_bench.assert_published_inventory(expected_inventory);
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
-        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+        test_bench.order_gateway.assert_no_repayments();
     }
 
     #[test]
@@ -634,35 +678,18 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(initial_inventory));
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(initial_inventory);
 
-        let execution_update = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Sell,
-            exec_id: "execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.566,
-            exec_fee: 0.01,
-            exec_qty: 10.0,
-            remaining_qty: 15.0,
-        };
+        let execution_update = execution_update(order_link_id, OrderSide::Sell, 0.566, 10.0, 0.01);
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = initial_inventory - execution_update.exec_qty;
-        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
-        assert_approx_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            initial_avg_entry_price
-        );
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
-        assert!(test_bench.oms.to_strategy.is_empty());
-        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+        test_bench.assert_metrics(expected_inventory, initial_avg_entry_price);
+        test_bench.assert_published_inventory(expected_inventory);
+        test_bench.order_gateway.assert_no_repayments();
     }
 
     #[test]
@@ -683,23 +710,11 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(initial_inventory));
-        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(initial_inventory);
+        test_bench.order_gateway.assert_no_repayments();
 
-        let execution_update = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Buy,
-            exec_id: "execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.566,
-            exec_fee: 0.01,
-            exec_qty: 22.0,
-            remaining_qty: 3.0,
-        };
+        let execution_update = execution_update(order_link_id, OrderSide::Buy, 0.566, 22.0, 0.01);
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
@@ -707,13 +722,9 @@ mod tests {
         let expected_inventory =
             initial_inventory + execution_update.exec_qty - execution_update.exec_fee;
         assert!(expected_inventory.is_sign_positive());
-        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
-        assert_approx_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            execution_update.exec_price
-        );
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
-        assert_eq!(test_bench.order_gateway.repaid_calls(), 1);
+        test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
+        test_bench.assert_published_inventory(expected_inventory);
+        test_bench.order_gateway.assert_repaid_once(coin);
     }
 
     #[test]
@@ -733,20 +744,8 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
-        let execution_update = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Sell,
-            exec_id: "execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.566,
-            exec_fee: 0.01,
-            exec_qty: 10.0,
-            remaining_qty: 15.0,
-        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        let execution_update = execution_update(order_link_id, OrderSide::Sell, 0.566, 10.0, 0.01);
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
@@ -767,46 +766,16 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let risk_policy = NewOrderRiskPolicy;
-        test_bench.oms.forward_orders(order_builder, &risk_policy);
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(0.0));
-        let first_execution = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Buy,
-            exec_id: "first-execution-id".to_string(),
-            exec_ts: 1773956505537,
-            exec_price: 0.5,
-            exec_fee: 0.01,
-            exec_qty: 10.0,
-            remaining_qty: 15.0,
-        };
-        let second_execution = OrderExecution {
-            order_link_id: initial_order_link_id,
-            order_id: "exchange-order-id".to_string(),
-            order_price: 0.567,
-            order_side: OrderSide::Buy,
-            exec_id: "second-execution-id".to_string(),
-            exec_ts: 1773956506537,
-            exec_price: 0.6,
-            exec_fee: 0.01,
-            exec_qty: 5.0,
-            remaining_qty: 10.0,
-        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(0.0);
+        let first_execution = execution_update(order_link_id, OrderSide::Buy, 0.5, 10.0, 0.01);
+        let second_execution = execution_update(order_link_id, OrderSide::Buy, 0.6, 5.0, 0.01);
 
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(first_execution.clone()));
         let inventory_after_first_execution = first_execution.exec_qty - first_execution.exec_fee;
-        assert_approx_eq!(
-            test_bench.oms.metrics.inventory(),
-            inventory_after_first_execution
-        );
-        assert_approx_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            first_execution.exec_price
-        );
+        test_bench.assert_metrics(inventory_after_first_execution, first_execution.exec_price);
 
         test_bench
             .oms
@@ -818,14 +787,9 @@ mod tests {
             * first_execution.exec_price)
             + (second_execution.exec_qty * second_execution.exec_price))
             / expected_inventory;
-        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
-        assert_approx_eq!(
-            test_bench.oms.metrics.average_entry_price(),
-            expected_avg_entry_price
-        );
-        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
-        assert!(test_bench.oms.to_strategy.is_empty());
-        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+        test_bench.assert_metrics(expected_inventory, expected_avg_entry_price);
+        test_bench.assert_published_inventory(expected_inventory);
+        test_bench.order_gateway.assert_no_repayments();
     }
 
     #[test]
@@ -847,20 +811,11 @@ mod tests {
         assert_eq!(test_bench.oms.id_map.len(), 1);
 
         let slab_index = *test_bench.oms.id_map.get(&order_link_id).unwrap();
-        let stored_order = test_bench.oms.orders.get(slab_index).unwrap();
-        assert_eq!(stored_order.order_link_id, order_link_id);
-        assert_eq!(stored_order.symbol, order_builder.symbol);
-        assert_eq!(stored_order.side, order_builder.side);
-        assert_eq!(stored_order.order_type, order_builder.order_type);
-        assert_eq!(stored_order.qty, order_builder.qty);
-        assert_eq!(
-            stored_order.price,
-            order_builder.price.parse::<f64>().unwrap()
+        assert_submitted_order_matches_builder(
+            test_bench.oms.orders.get(slab_index).unwrap(),
+            order_link_id,
+            &order_builder,
         );
-        assert_eq!(stored_order.order_status, OrderStatus::Submitted);
-        assert_eq!(stored_order.filled_qty, 0.0);
-        assert!(stored_order.filled_price.is_nan());
-        assert_eq!(stored_order.updated_time, 0);
     }
 
     #[test]
@@ -916,16 +871,15 @@ mod tests {
         let sell_slab_index = *test_bench.oms.id_map.get(&sell_id).unwrap();
         assert_ne!(buy_slab_index, sell_slab_index);
 
-        let stored_buy = test_bench.oms.orders.get(buy_slab_index).unwrap();
-        assert_eq!(stored_buy.order_link_id, buy_id);
-        assert_eq!(stored_buy.side, buy_order.side);
-        assert_eq!(stored_buy.qty, buy_order.qty);
-        assert_eq!(stored_buy.price, buy_order.price.parse::<f64>().unwrap());
-
-        let stored_sell = test_bench.oms.orders.get(sell_slab_index).unwrap();
-        assert_eq!(stored_sell.order_link_id, sell_id);
-        assert_eq!(stored_sell.side, sell_order.side);
-        assert_eq!(stored_sell.qty, sell_order.qty);
-        assert_eq!(stored_sell.price, sell_order.price.parse::<f64>().unwrap());
+        assert_order_matches_builder(
+            test_bench.oms.orders.get(buy_slab_index).unwrap(),
+            buy_id,
+            &buy_order,
+        );
+        assert_order_matches_builder(
+            test_bench.oms.orders.get(sell_slab_index).unwrap(),
+            sell_id,
+            &sell_order,
+        );
     }
 }
