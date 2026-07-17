@@ -1,16 +1,17 @@
-use std::f64;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
-use exchange::{Order, OrderBuilder, OrderExecution, OrderGateway, OrderMessages, OrderSide};
+use exchange::{Order, OrderBuilder, OrderGateway, OrderMessages};
 use log::{info, warn};
 use rustc_hash::FxHashMap;
 use slab::Slab;
 
+use crate::metrics::Metrics;
 use crate::risk::{Outcome, RiskManager, RiskPolicy};
 
+mod metrics;
 pub mod risk;
 
 #[derive(Debug)]
@@ -44,12 +45,7 @@ pub struct OrderManagementSystem {
     order_gateway: Box<dyn OrderGateway>,
     // TODO: the Slab will grow infinitely. It needs to be pruned when orders are completed.
     orders: Slab<Order>,
-    // NOTE: at the moment it supports only one pair (ADAUSDT)
-    // +ve --> purchased ADA coins
-    // -ve --> sold ADA coins
-    // A value of 0 shows no exposure to the market i.e. all positions closed.
-    inventory: f64,
-    avg_entry_price: f64,
+    metrics: Metrics,
     coin: String,
     //
     id_map: FxHashMap<u64, usize>,
@@ -73,8 +69,7 @@ impl OrderManagementSystem {
             order_gateway,
             orders: Slab::with_capacity(5),
             // NOTE: may be useful to keep track of past_orders
-            inventory: config.inventory,
-            avg_entry_price: config.avg_entry_price,
+            metrics: Metrics::new(config.inventory, config.avg_entry_price),
             coin: config.coin,
             //
             id_map: FxHashMap::default(),
@@ -116,57 +111,14 @@ impl OrderManagementSystem {
         next_order_link_id
     }
 
-    /// This function calculates the new average entry price given the latest
-    /// execution update from the exchange.
-    /// This function takes the inventory value before it is updated with the
-    /// execution update.
-    /// The average entry price takes into account change of side from buy to
-    /// sell and vice-versa.
-    fn update_metrics(
-        avg_entry_price: f64,
-        inventory: f64,
-        execution_update: &OrderExecution,
-        order_side: OrderSide,
-    ) -> (f64, f64) {
-        let new_inventory = match order_side {
-            // NOTE: On a Buy, the fee is paid in the base asset (e.g., ADA). We must subtract it.
-            // On a Sell, the fee is paid in the quote asset (USDT), no additional fee to be
-            // removed.
-            OrderSide::Buy => inventory + execution_update.exec_qty - execution_update.exec_fee,
-            OrderSide::Sell => inventory - execution_update.exec_qty,
-        };
-
-        if inventory.abs() < 1e-8 {
-            return (execution_update.exec_price, new_inventory);
-        } else if (inventory > 0.0 && order_side == OrderSide::Buy)
-            || (inventory < 0.0 && order_side == OrderSide::Sell)
-        {
-            let total_value = (inventory.abs() * avg_entry_price)
-                + (execution_update.exec_qty * execution_update.exec_price);
-            return (total_value / new_inventory.abs(), new_inventory);
-        } else if new_inventory.abs() < 1e-8 {
-            return (0.0, new_inventory);
-        } else {
-            // NOTE: no need to worry about +/-0.0 because it is check in the first case.
-            let crossed_zero = inventory.signum() != new_inventory.signum();
-
-            if crossed_zero {
-                return (execution_update.exec_price, new_inventory);
-            }
-            // If we didn't cross zero avg_entry_price stays the same!
-        }
-
-        (avg_entry_price, new_inventory)
-    }
-
     /// This function is responsible for receiving the order commands from the
     /// strategy and forwarding them to the exchange.
     pub fn forward_orders(&mut self, order_builder: OrderBuilder, risk_policy: &dyn RiskPolicy) {
         match risk_policy.evaluate_order(
             &self.orders,
             order_builder,
-            self.inventory,
-            self.avg_entry_price,
+            self.metrics.inventory(),
+            self.metrics.average_entry_price(),
         ) {
             Outcome::NewOrder(order) => {
                 let order_link_id = self.insert_new_order(&order);
@@ -218,7 +170,7 @@ impl OrderManagementSystem {
                     return;
                 };
                 // NOTE: assuming order exists already!
-                if let Some(old_order) = self.orders.get_mut(*slab_id) {
+                if let Some(_) = self.orders.get_mut(*slab_id) {
                     // NOTE: this is to prevent manual orders on the UI to
                     // affect the logic of the bot.
                     info!(
@@ -226,29 +178,30 @@ impl OrderManagementSystem {
                         order.order_link_id, order.exec_price, order.exec_qty
                     );
 
-                    // NOTE: returning the new value because I can't borrow `self` twice as mutable.
-                    let (avg_entry_price, inventory) = Self::update_metrics(
-                        self.avg_entry_price,
-                        self.inventory,
-                        &order,
-                        old_order.side,
+                    let old_inventory = self.metrics.inventory();
+                    self.metrics.update(
+                        order.exec_price,
+                        order.exec_qty,
+                        order.exec_fee,
+                        order.order_side,
                     );
-                    if self.inventory.is_sign_negative() && inventory.is_sign_positive() {
+                    if old_inventory.is_sign_negative()
+                        && self.metrics.inventory().is_sign_positive()
+                    {
                         // NOTE: The new inventory is positive, therefore we can repay the borrowed
                         // money. It is assumed it is triggered less than 1
                         // time per second.
                         self.order_gateway.repay_liability(&self.coin);
                     }
-                    self.avg_entry_price = avg_entry_price;
-                    self.inventory = inventory;
-                    self.to_strategy.force_push(self.inventory);
+                    self.to_strategy.force_push(self.metrics.inventory());
                 };
             }
         };
 
         info!(
             "Inventory {:.3} | Avg price {:.3}",
-            self.inventory, self.avg_entry_price
+            self.metrics.inventory(),
+            self.metrics.average_entry_price()
         );
     }
 }
@@ -260,15 +213,21 @@ mod tests {
 
     use assert_approx_eq::assert_approx_eq;
     use crossbeam_channel::unbounded;
-    use exchange::{OrderAmendedBuilder, OrderStatus, OrderType, OrderUpdate};
-    use rstest::rstest;
+    use exchange::{
+        OrderAmendedBuilder,
+        OrderExecution,
+        OrderSide,
+        OrderStatus,
+        OrderType,
+        OrderUpdate,
+    };
 
     use super::*;
 
     #[derive(Clone, Debug, Default)]
     struct TestOrderGateway {
         submitted: Rc<RefCell<Vec<(OrderBuilder, u64)>>>,
-        repaid: Rc<RefCell<usize>>,
+        repaid_coins: Rc<RefCell<Vec<String>>>,
     }
     impl TestOrderGateway {
         fn submitted_orders(&self) -> Ref<'_, Vec<(OrderBuilder, u64)>> {
@@ -276,7 +235,7 @@ mod tests {
         }
 
         fn repaid_calls(&self) -> usize {
-            *self.repaid.borrow()
+            self.repaid_coins.borrow().len()
         }
     }
     impl OrderGateway for TestOrderGateway {
@@ -290,8 +249,8 @@ mod tests {
             todo!()
         }
 
-        fn repay_liability(&self, _coin: &str) {
-            *self.repaid.borrow_mut() += 1;
+        fn repay_liability(&self, coin: &str) {
+            self.repaid_coins.borrow_mut().push(coin.to_string());
         }
 
         fn cancel_all(&self) {
@@ -333,10 +292,13 @@ mod tests {
     }
     impl OmsTestBench {
         fn new(initial_order_link_id: u64) -> OmsTestBench {
+            Self::with_config(OmsConfig::new("ADA", 0.0, 0.0, initial_order_link_id))
+        }
+
+        fn with_config(config: OmsConfig) -> OmsTestBench {
             let (_, from_strategy) = unbounded();
             let (_, from_order_handler) = unbounded();
             let to_strategy = Arc::new(ArrayQueue::new(1));
-            let config = OmsConfig::new("ADA", 0.0, 0.0, initial_order_link_id);
             let order_gateway = Box::new(TestOrderGateway::default());
 
             let oms = OrderManagementSystem::new(
@@ -372,8 +334,8 @@ mod tests {
         );
 
         assert_eq!(oms.coin, coin);
-        assert_eq!(oms.inventory, inventory);
-        assert_eq!(oms.avg_entry_price, avg_entry_price);
+        assert_eq!(oms.metrics.inventory(), inventory);
+        assert_eq!(oms.metrics.average_entry_price(), avg_entry_price);
         assert_eq!(
             oms.id_generator.load(Ordering::Relaxed),
             initial_order_link_id
@@ -434,8 +396,8 @@ mod tests {
             qty: 25.0,
             price: "0.567".to_string(),
         };
-        let initial_inventory = test_bench.oms.inventory;
-        let initial_avg_entry_price = test_bench.oms.avg_entry_price;
+        let initial_inventory = test_bench.oms.metrics.inventory();
+        let initial_avg_entry_price = test_bench.oms.metrics.average_entry_price();
         let initial_coin = test_bench.oms.coin.clone();
         let initial_next_order_link_id = test_bench.oms.id_generator.load(Ordering::Relaxed);
 
@@ -444,8 +406,11 @@ mod tests {
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
-        assert_eq!(test_bench.oms.inventory, initial_inventory);
-        assert_eq!(test_bench.oms.avg_entry_price, initial_avg_entry_price);
+        assert_eq!(test_bench.oms.metrics.inventory(), initial_inventory);
+        assert_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            initial_avg_entry_price
+        );
         assert_eq!(test_bench.oms.coin, initial_coin);
         assert_eq!(
             test_bench.oms.id_generator.load(Ordering::Relaxed),
@@ -527,8 +492,8 @@ mod tests {
         test_bench
             .oms
             .forward_orders(order_builder.clone(), &risk_policy);
-        let initial_inventory = test_bench.oms.inventory;
-        let initial_avg_entry_price = test_bench.oms.avg_entry_price;
+        let initial_inventory = test_bench.oms.metrics.inventory();
+        let initial_avg_entry_price = test_bench.oms.metrics.average_entry_price();
         let initial_coin = test_bench.oms.coin.clone();
         let initial_next_order_link_id = test_bench.oms.id_generator.load(Ordering::Relaxed);
         let unknown_order_update = OrderUpdate {
@@ -562,8 +527,11 @@ mod tests {
         assert_eq!(stored_order.filled_qty, 0.0);
         assert!(stored_order.filled_price.is_nan());
         assert_eq!(stored_order.updated_time, 0);
-        assert_eq!(test_bench.oms.inventory, initial_inventory);
-        assert_eq!(test_bench.oms.avg_entry_price, initial_avg_entry_price);
+        assert_eq!(test_bench.oms.metrics.inventory(), initial_inventory);
+        assert_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            initial_avg_entry_price
+        );
         assert_eq!(test_bench.oms.coin, initial_coin);
         assert_eq!(
             test_bench.oms.id_generator.load(Ordering::Relaxed),
@@ -595,8 +563,8 @@ mod tests {
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
-        assert_eq!(test_bench.oms.inventory, 0.0);
-        assert_eq!(test_bench.oms.avg_entry_price, 0.0);
+        assert_eq!(test_bench.oms.metrics.inventory(), 0.0);
+        assert_eq!(test_bench.oms.metrics.average_entry_price(), 0.0);
         assert_eq!(
             test_bench.oms.id_generator.load(Ordering::Relaxed),
             initial_order_link_id
@@ -635,13 +603,228 @@ mod tests {
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
-        assert_approx_eq!(test_bench.oms.inventory, expected_inventory);
-        assert_approx_eq!(test_bench.oms.avg_entry_price, execution_update.exec_price);
+        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
+        assert_approx_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            execution_update.exec_price
+        );
         let published_inventory = test_bench.oms.to_strategy.pop().unwrap();
         assert_approx_eq!(published_inventory, expected_inventory);
         assert!(test_bench.oms.to_strategy.is_empty());
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
+        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+    }
+
+    #[test]
+    fn order_response_applies_sell_execution_update() {
+        let initial_order_link_id = 1000;
+        let initial_inventory = 50.0;
+        let initial_avg_entry_price = 0.5;
+        let mut test_bench = OmsTestBench::with_config(OmsConfig::new(
+            "ADA",
+            initial_inventory,
+            initial_avg_entry_price,
+            initial_order_link_id,
+        ));
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Sell,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench.oms.forward_orders(order_builder, &risk_policy);
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(initial_inventory));
+
+        let execution_update = OrderExecution {
+            order_link_id: initial_order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Sell,
+            exec_id: "execution-id".to_string(),
+            exec_ts: 1773956505537,
+            exec_price: 0.566,
+            exec_fee: 0.01,
+            exec_qty: 10.0,
+            remaining_qty: 15.0,
+        };
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+
+        let expected_inventory = initial_inventory - execution_update.exec_qty;
+        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
+        assert_approx_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            initial_avg_entry_price
+        );
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
+        assert!(test_bench.oms.to_strategy.is_empty());
+        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+    }
+
+    #[test]
+    fn order_response_repays_liability_when_execution_crosses_from_short_to_long() {
+        let initial_order_link_id = 1000;
+        let coin = "ADA";
+        let initial_inventory = -10.0;
+        let mut test_bench = OmsTestBench::with_config(OmsConfig::new(
+            coin,
+            initial_inventory,
+            0.5,
+            initial_order_link_id,
+        ));
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench.oms.forward_orders(order_builder, &risk_policy);
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(initial_inventory));
+        assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
+
+        let execution_update = OrderExecution {
+            order_link_id: initial_order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Buy,
+            exec_id: "execution-id".to_string(),
+            exec_ts: 1773956505537,
+            exec_price: 0.566,
+            exec_fee: 0.01,
+            exec_qty: 22.0,
+            remaining_qty: 3.0,
+        };
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+
+        let expected_inventory =
+            initial_inventory + execution_update.exec_qty - execution_update.exec_fee;
+        assert!(expected_inventory.is_sign_positive());
+        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
+        assert_approx_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            execution_update.exec_price
+        );
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
+        assert_eq!(test_bench.order_gateway.repaid_calls(), 1);
+    }
+
+    #[test]
+    fn order_response_replaces_stale_strategy_inventory() {
+        let initial_order_link_id = 1000;
+        let initial_inventory = 50.0;
+        let mut test_bench = OmsTestBench::with_config(OmsConfig::new(
+            "ADA",
+            initial_inventory,
+            0.5,
+            initial_order_link_id,
+        ));
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Sell,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench.oms.forward_orders(order_builder, &risk_policy);
+        let execution_update = OrderExecution {
+            order_link_id: initial_order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Sell,
+            exec_id: "execution-id".to_string(),
+            exec_ts: 1773956505537,
+            exec_price: 0.566,
+            exec_fee: 0.01,
+            exec_qty: 10.0,
+            remaining_qty: 15.0,
+        };
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+
+        let expected_inventory = initial_inventory - execution_update.exec_qty;
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
+        assert!(test_bench.oms.to_strategy.is_empty());
+    }
+
+    #[test]
+    fn order_response_accumulates_multiple_execution_updates() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let risk_policy = NewOrderRiskPolicy;
+        test_bench.oms.forward_orders(order_builder, &risk_policy);
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(0.0));
+        let first_execution = OrderExecution {
+            order_link_id: initial_order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Buy,
+            exec_id: "first-execution-id".to_string(),
+            exec_ts: 1773956505537,
+            exec_price: 0.5,
+            exec_fee: 0.01,
+            exec_qty: 10.0,
+            remaining_qty: 15.0,
+        };
+        let second_execution = OrderExecution {
+            order_link_id: initial_order_link_id,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Buy,
+            exec_id: "second-execution-id".to_string(),
+            exec_ts: 1773956506537,
+            exec_price: 0.6,
+            exec_fee: 0.01,
+            exec_qty: 5.0,
+            remaining_qty: 10.0,
+        };
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(first_execution.clone()));
+        let inventory_after_first_execution = first_execution.exec_qty - first_execution.exec_fee;
+        assert_approx_eq!(
+            test_bench.oms.metrics.inventory(),
+            inventory_after_first_execution
+        );
+        assert_approx_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            first_execution.exec_price
+        );
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(second_execution.clone()));
+
+        let expected_inventory =
+            inventory_after_first_execution + second_execution.exec_qty - second_execution.exec_fee;
+        let expected_avg_entry_price = ((inventory_after_first_execution
+            * first_execution.exec_price)
+            + (second_execution.exec_qty * second_execution.exec_price))
+            / expected_inventory;
+        assert_approx_eq!(test_bench.oms.metrics.inventory(), expected_inventory);
+        assert_approx_eq!(
+            test_bench.oms.metrics.average_entry_price(),
+            expected_avg_entry_price
+        );
+        assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
+        assert!(test_bench.oms.to_strategy.is_empty());
         assert_eq!(test_bench.order_gateway.repaid_calls(), 0);
     }
 
@@ -744,77 +927,5 @@ mod tests {
         assert_eq!(stored_sell.side, sell_order.side);
         assert_eq!(stored_sell.qty, sell_order.qty);
         assert_eq!(stored_sell.price, sell_order.price.parse::<f64>().unwrap());
-    }
-
-    #[rstest]
-    #[case(0.0, 0.0, 0.567, 22.0, OrderSide::Buy, 0.567)]
-    #[case(0.0, 0.0, 0.567, 22.0, OrderSide::Sell, 0.567)]
-    #[case(1.0, 50.0, 2.0, 50.0, OrderSide::Buy, 1.5)]
-    #[case(1.0, 50.0, 1.5, 100.0, OrderSide::Sell, 1.5)]
-    fn test_avg_entry_price(
-        #[case] avg_entry_price: f64,
-        #[case] inventory: f64,
-        #[case] exec_price: f64,
-        #[case] exec_qty: f64,
-        #[case] order_side: OrderSide,
-        #[case] expected_avg_entry_price: f64,
-    ) {
-        let execution_update = OrderExecution {
-            order_link_id: 1234,
-            exec_price,
-            exec_fee: 0.0,
-            exec_qty,
-            remaining_qty: 50.0,
-            exec_id: "abcd".to_string(),
-            exec_ts: 1773956505537,
-            order_id: "1773956505537".to_string(),
-            order_price: exec_price,
-            order_side,
-        };
-
-        let new_metrics = OrderManagementSystem::update_metrics(
-            avg_entry_price,
-            inventory,
-            &execution_update,
-            order_side,
-        );
-        assert_approx_eq!(new_metrics.0, expected_avg_entry_price);
-    }
-
-    #[rstest]
-    #[case(0.0, 22.0, 0.01, OrderSide::Buy, 21.99)]
-    #[case(0.0, 22.0, 0.01, OrderSide::Sell, -22.0)]
-    #[case(50.0, 22.0, 0.01, OrderSide::Buy, 71.99)]
-    #[case(50.0, 22.0, 0.01, OrderSide::Sell, 28.0)]
-    #[case(10.0, 22.0, 0.0, OrderSide::Sell, -12.0)]
-    #[case(-50.0, 22.0, 0.01, OrderSide::Sell, -72.0)]
-    #[case(-50.0, 22.0, 0.01, OrderSide::Buy, -28.01)]
-    #[case(-10.0, 22.0, 0.01, OrderSide::Buy, 11.99)]
-    #[case(22.0, 22.0, 0.0, OrderSide::Sell, 0.0)]
-    #[case(-22.0, 22.0, 0.0, OrderSide::Buy, 0.0)]
-    fn test_inventory(
-        #[case] inventory: f64,
-        #[case] exec_qty: f64,
-        #[case] exec_fee: f64,
-        #[case] order_side: OrderSide,
-        #[case] expected_inventory: f64,
-    ) {
-        let execution_update = OrderExecution {
-            order_link_id: 1234,
-            exec_price: 0.567,
-            exec_fee,
-            exec_qty,
-            remaining_qty: 50.0,
-            exec_id: "abcd".to_string(),
-            exec_ts: 1773956505537,
-            order_id: "1773956505537".to_string(),
-            order_price: 0.567,
-            order_side,
-        };
-
-        let new_metrics =
-            OrderManagementSystem::update_metrics(1.0, inventory, &execution_update, order_side);
-
-        assert_approx_eq!(new_metrics.1, expected_inventory);
     }
 }
