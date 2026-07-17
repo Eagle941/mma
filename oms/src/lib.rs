@@ -5,7 +5,7 @@ use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
 use exchange::{Order, OrderBuilder, OrderGateway, OrderMessages};
 use log::{info, warn};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use slab::Slab;
 
 use crate::metrics::Metrics;
@@ -50,6 +50,8 @@ pub struct OrderManagementSystem {
     //
     id_map: FxHashMap<u64, usize>,
     id_generator: AtomicU64,
+    // TODO: Bound or persist execution IDs without allowing late duplicate executions.
+    processed_executions: FxHashSet<(u64, String)>,
 }
 impl OrderManagementSystem {
     pub fn new(
@@ -74,6 +76,7 @@ impl OrderManagementSystem {
             //
             id_map: FxHashMap::default(),
             id_generator: AtomicU64::new(config.initial_order_link_id),
+            processed_executions: FxHashSet::default(),
         }
     }
 
@@ -109,6 +112,11 @@ impl OrderManagementSystem {
         entry.insert(order.build(next_order_link_id));
         self.id_map.insert(next_order_link_id, slab_index);
         next_order_link_id
+    }
+
+    fn register_execution(&mut self, order_link_id: u64, exec_id: &str) -> bool {
+        self.processed_executions
+            .insert((order_link_id, exec_id.to_string()))
     }
 
     /// This function is responsible for receiving the order commands from the
@@ -165,36 +173,59 @@ impl OrderManagementSystem {
                 };
             }
             OrderMessages::ExecutionUpdate(order) => {
-                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    warn!("DISCARDED execution order {}", &order.order_link_id);
+                if order.exec_id.is_empty() {
+                    warn!(
+                        "DISCARDED execution, empty ID for order {}",
+                        order.order_link_id
+                    );
+                    return;
+                }
+
+                let Some(&slab_id) = self.id_map.get(&order.order_link_id) else {
+                    warn!(
+                        "DISCARDED execution {}, order slab {} not found",
+                        order.exec_id, order.order_link_id
+                    );
                     return;
                 };
-                // NOTE: assuming order exists already!
-                if self.orders.contains(*slab_id) {
-                    // NOTE: this is to prevent manual orders on the UI to
-                    // affect the logic of the bot.
-                    info!(
-                        "Execution order {} {:.3} {:.0}",
-                        order.order_link_id, order.exec_price, order.exec_qty
-                    );
 
-                    let old_inventory = self.metrics.inventory();
-                    self.metrics.update(
-                        order.exec_price,
-                        order.exec_qty,
-                        order.exec_fee,
-                        order.order_side,
+                if !self.orders.contains(slab_id) {
+                    warn!(
+                        "DISCARDED execution {}, order {} not found",
+                        order.exec_id, order.order_link_id
                     );
-                    if old_inventory.is_sign_negative()
-                        && self.metrics.inventory().is_sign_positive()
-                    {
-                        // NOTE: The new inventory is positive, therefore we can repay the borrowed
-                        // money. It is assumed it is triggered less than 1
-                        // time per second.
-                        self.order_gateway.repay_liability(&self.coin);
-                    }
-                    self.to_strategy.force_push(self.metrics.inventory());
-                };
+                    return;
+                }
+
+                if !self.register_execution(order.order_link_id, &order.exec_id) {
+                    warn!(
+                        "DISCARDED duplicate execution {} for order {}",
+                        order.exec_id, order.order_link_id
+                    );
+                    return;
+                }
+
+                // NOTE: this is to prevent manual orders on the UI to
+                // affect the logic of the bot.
+                info!(
+                    "Execution order {} {:.3} {:.0}",
+                    order.order_link_id, order.exec_price, order.exec_qty
+                );
+
+                let old_inventory = self.metrics.inventory();
+                self.metrics.update(
+                    order.exec_price,
+                    order.exec_qty,
+                    order.exec_fee,
+                    order.order_side,
+                );
+                if old_inventory.is_sign_negative() && self.metrics.inventory().is_sign_positive() {
+                    // NOTE: The new inventory is positive, therefore we can repay the borrowed
+                    // money. It is assumed it is triggered less than 1
+                    // time per second.
+                    self.order_gateway.repay_liability(&self.coin);
+                }
+                self.to_strategy.force_push(self.metrics.inventory());
             }
         };
 
@@ -372,6 +403,7 @@ mod tests {
 
     fn execution_update(
         order_link_id: u64,
+        exec_id: &str,
         side: OrderSide,
         price: f64,
         quantity: f64,
@@ -382,7 +414,7 @@ mod tests {
             order_id: "exchange-order-id".to_string(),
             order_price: price,
             order_side: side,
-            exec_id: "execution-id".to_string(),
+            exec_id: exec_id.to_string(),
             exec_ts: 1_773_956_505_537,
             exec_price: price,
             exec_fee: fee,
@@ -618,7 +650,8 @@ mod tests {
     fn order_response_ignores_unknown_execution_update() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
-        let execution_update = execution_update(9999, OrderSide::Buy, 0.566, 10.0, 0.01);
+        let execution_update =
+            execution_update(9999, "execution-id", OrderSide::Buy, 0.566, 10.0, 0.01);
 
         test_bench
             .oms
@@ -634,6 +667,44 @@ mod tests {
     }
 
     #[test]
+    fn order_response_does_not_register_execution_for_unknown_order() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let execution_update = execution_update(
+            initial_order_link_id,
+            "execution-id",
+            OrderSide::Buy,
+            0.566,
+            10.0,
+            0.01,
+        );
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+        test_bench.assert_metrics(0.0, 0.0);
+
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        assert_eq!(order_link_id, initial_order_link_id);
+        test_bench.assert_published_inventory(0.0);
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+
+        let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
+        test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
+        test_bench.assert_published_inventory(expected_inventory);
+    }
+
+    #[test]
     fn order_response_applies_execution_update() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
@@ -646,7 +717,14 @@ mod tests {
         };
         let order_link_id = test_bench.submit_new_order(&order_builder);
         test_bench.assert_published_inventory(0.0);
-        let execution_update = execution_update(order_link_id, OrderSide::Buy, 0.566, 10.0, 0.01);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Buy,
+            0.566,
+            10.0,
+            0.01,
+        );
 
         test_bench
             .oms
@@ -658,6 +736,77 @@ mod tests {
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
         test_bench.order_gateway.assert_no_repayments();
+    }
+
+    #[test]
+    fn order_response_does_not_apply_duplicate_execution_to_metrics() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(0.0);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Buy,
+            0.566,
+            10.0,
+            0.01,
+        );
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+        let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
+        test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
+        test_bench.assert_published_inventory(expected_inventory);
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+
+        test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
+    }
+
+    #[test]
+    fn order_response_does_not_publish_inventory_for_duplicate_execution() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        test_bench.assert_published_inventory(0.0);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Buy,
+            0.566,
+            10.0,
+            0.01,
+        );
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+        let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
+        test_bench.assert_published_inventory(expected_inventory);
+
+        test_bench
+            .oms
+            .order_response(OrderMessages::ExecutionUpdate(execution_update));
+
+        assert!(test_bench.oms.to_strategy.is_empty());
     }
 
     #[test]
@@ -681,7 +830,14 @@ mod tests {
         let order_link_id = test_bench.submit_new_order(&order_builder);
         test_bench.assert_published_inventory(initial_inventory);
 
-        let execution_update = execution_update(order_link_id, OrderSide::Sell, 0.566, 10.0, 0.01);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Sell,
+            0.566,
+            10.0,
+            0.01,
+        );
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
@@ -714,7 +870,14 @@ mod tests {
         test_bench.assert_published_inventory(initial_inventory);
         test_bench.order_gateway.assert_no_repayments();
 
-        let execution_update = execution_update(order_link_id, OrderSide::Buy, 0.566, 22.0, 0.01);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Buy,
+            0.566,
+            22.0,
+            0.01,
+        );
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
@@ -745,7 +908,14 @@ mod tests {
             price: "0.567".to_string(),
         };
         let order_link_id = test_bench.submit_new_order(&order_builder);
-        let execution_update = execution_update(order_link_id, OrderSide::Sell, 0.566, 10.0, 0.01);
+        let execution_update = execution_update(
+            order_link_id,
+            "execution-id",
+            OrderSide::Sell,
+            0.566,
+            10.0,
+            0.01,
+        );
         test_bench
             .oms
             .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
@@ -768,8 +938,22 @@ mod tests {
         };
         let order_link_id = test_bench.submit_new_order(&order_builder);
         test_bench.assert_published_inventory(0.0);
-        let first_execution = execution_update(order_link_id, OrderSide::Buy, 0.5, 10.0, 0.01);
-        let second_execution = execution_update(order_link_id, OrderSide::Buy, 0.6, 5.0, 0.01);
+        let first_execution = execution_update(
+            order_link_id,
+            "first-execution-id",
+            OrderSide::Buy,
+            0.5,
+            10.0,
+            0.01,
+        );
+        let second_execution = execution_update(
+            order_link_id,
+            "second-execution-id",
+            OrderSide::Buy,
+            0.6,
+            5.0,
+            0.01,
+        );
 
         test_bench
             .oms
