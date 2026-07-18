@@ -2,20 +2,28 @@ use exchange::OrderSide;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Metrics {
-    inventory: f64,
+    /// The actual inventory in the wallet
+    net_inventory: f64,
+    /// The inventory before subtracting buy-fees
+    /// NOTE:
+    /// - It is initialised to `net_inventory` because it's not possible to
+    /// reconstruct the fees paid at startup.
+    /// - It is not reset to 0 when the position is closed.
+    gross_inventory: f64,
     average_entry_price: f64,
 }
 
 impl Metrics {
-    pub fn new(inventory: f64, average_entry_price: f64) -> Self {
+    pub fn new(net_inventory: f64, average_entry_price: f64) -> Self {
         Self {
-            inventory,
+            net_inventory,
+            gross_inventory: net_inventory,
             average_entry_price,
         }
     }
 
     pub fn inventory(&self) -> f64 {
-        self.inventory
+        self.net_inventory
     }
 
     pub fn average_entry_price(&self) -> f64 {
@@ -27,31 +35,39 @@ impl Metrics {
     /// Inventory accounts for base-asset fees on buys. Average entry price
     /// excludes execution fees.
     pub fn update(&mut self, exec_price: f64, exec_qty: f64, exec_fee: f64, order_side: OrderSide) {
-        let new_inventory = match order_side {
+        let new_gross_inventory = match order_side {
+            OrderSide::Buy => self.gross_inventory + exec_qty,
+            OrderSide::Sell => self.gross_inventory - exec_qty,
+        };
+
+        let new_net_inventory = match order_side {
             // NOTE: On a Buy, the fee is paid in the base asset (e.g., ADA). We must subtract it.
             // On a Sell, the fee is paid in the quote asset (USDT), no additional fee to be
             // removed.
-            OrderSide::Buy => self.inventory + exec_qty - exec_fee,
-            OrderSide::Sell => self.inventory - exec_qty,
+            OrderSide::Buy => self.net_inventory + exec_qty - exec_fee,
+            OrderSide::Sell => self.net_inventory - exec_qty,
         };
 
-        let new_average_entry_price = if self.inventory.abs() < 1e-8 {
+        // NOTE: need to use `net_inventory` in some of the conditions because
+        // `gross_inventory` will not accurately show crossig or reset of position
+        // because it will be drifting in the long term.
+        let new_average_entry_price = if self.net_inventory.abs() < 1e-8 {
             // New position is opened, take the exec_price as the average_entry_price
             exec_price
-        } else if (self.inventory.is_sign_positive() && order_side == OrderSide::Buy)
-            || (self.inventory.is_sign_negative() && order_side == OrderSide::Sell)
+        } else if (self.net_inventory.is_sign_positive() && order_side == OrderSide::Buy)
+            || (self.net_inventory.is_sign_negative() && order_side == OrderSide::Sell)
         {
             // If execution update is on the same side, re-calculate the average_entry_price
             let new_value = exec_qty * exec_price;
-            let old_value = self.inventory.abs() * self.average_entry_price;
+            let old_value = self.gross_inventory.abs() * self.average_entry_price;
             let total_value = new_value + old_value;
-            total_value / new_inventory.abs()
-        } else if new_inventory.abs() < 1e-8 {
+            total_value / new_gross_inventory.abs()
+        } else if new_gross_inventory.abs() < 1e-8 {
             // Existing position is closed, reset the average_entry_price to 0
             0.0
         } else {
             // NOTE: no need to worry about +/-0.0 because it is checked in the first case.
-            let crossed_zero = self.inventory.signum() != new_inventory.signum();
+            let crossed_zero = self.net_inventory.signum() != new_net_inventory.signum();
 
             if crossed_zero {
                 exec_price
@@ -61,7 +77,8 @@ impl Metrics {
             }
         };
 
-        self.inventory = new_inventory;
+        self.gross_inventory = new_gross_inventory;
+        self.net_inventory = new_net_inventory;
         self.average_entry_price = new_average_entry_price;
     }
 }

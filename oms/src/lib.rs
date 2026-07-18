@@ -934,7 +934,7 @@ mod tests {
             side: OrderSide::Buy,
             order_type: OrderType::Limit,
             qty: 25.0,
-            price: "0.567".to_string(),
+            price: "1.0".to_string(),
         };
         let order_link_id = test_bench.submit_new_order(&order_builder);
         test_bench.assert_published_inventory(0.0);
@@ -942,17 +942,17 @@ mod tests {
             order_link_id,
             "first-execution-id",
             OrderSide::Buy,
-            0.5,
+            1.0,
             10.0,
-            0.01,
+            0.1,
         );
         let second_execution = execution_update(
             order_link_id,
             "second-execution-id",
             OrderSide::Buy,
-            0.6,
+            0.5,
             5.0,
-            0.01,
+            0.1,
         );
 
         test_bench
@@ -965,12 +965,8 @@ mod tests {
             .oms
             .order_response(OrderMessages::ExecutionUpdate(second_execution.clone()));
 
-        let expected_inventory =
-            inventory_after_first_execution + second_execution.exec_qty - second_execution.exec_fee;
-        let expected_avg_entry_price = ((inventory_after_first_execution
-            * first_execution.exec_price)
-            + (second_execution.exec_qty * second_execution.exec_price))
-            / expected_inventory;
+        let expected_inventory = 14.8;
+        let expected_avg_entry_price = 0.833333;
         test_bench.assert_metrics(expected_inventory, expected_avg_entry_price);
         test_bench.assert_published_inventory(expected_inventory);
         test_bench.order_gateway.assert_no_repayments();
