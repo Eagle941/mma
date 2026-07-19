@@ -3,7 +3,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
-use exchange::{Order, OrderBuilder, OrderEvent, OrderGateway, OrderStatus};
+use exchange::{
+    Order,
+    OrderBuilder,
+    OrderEvent,
+    OrderExecution,
+    OrderGateway,
+    OrderStatus,
+    OrderUpdate,
+};
 use log::{info, warn};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slab::Slab;
@@ -138,120 +146,124 @@ impl OrderManagementSystem {
     }
 
     /// Records order events received from the exchange.
-    pub fn order_response(&mut self, new_order: OrderEvent) {
-        // TODO: optimise insert or update logic.
-        match new_order {
-            OrderEvent::OrderUpdate(order) => {
-                let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
-                    warn!("DISCARDED updated order {}", &order.order_link_id);
-                    return;
-                };
-                // NOTE: assuming order exists already!
-                if let Some(old_order) = self.orders.get_mut(*slab_id) {
-                    // NOTE: this is to prevent manual orders on the UI to
-                    // affect the logic of the bot.
-                    info!(
-                        "Updated order {} {:?} {:.3} {:.0}",
-                        order.order_link_id,
-                        order.order_status,
-                        order.filled_price,
-                        order.filled_qty
-                    );
-
-                    old_order.price = order.price;
-                    old_order.qty = order.qty;
-                    old_order.order_status = order.order_status;
-                    old_order.filled_price = order.filled_price;
-                    old_order.filled_qty = order.filled_qty;
-                    old_order.updated_time = order.updated_time;
-
-                    // TODO: Add order removal from Slab when they are closed to
-                    // clear up the memory.
-                };
-            }
-            OrderEvent::ExecutionUpdate(order) => {
-                if order.exec_id.is_empty() {
-                    warn!(
-                        "DISCARDED execution, empty ID for order {}",
-                        order.order_link_id
-                    );
-                    return;
-                }
-
-                let Some(&slab_id) = self.id_map.get(&order.order_link_id) else {
-                    warn!(
-                        "DISCARDED execution {}, order slab {} not found",
-                        order.exec_id, order.order_link_id
-                    );
-                    return;
-                };
-
-                if !self.orders.contains(slab_id) {
-                    warn!(
-                        "DISCARDED execution {}, order {} not found",
-                        order.exec_id, order.order_link_id
-                    );
-                    return;
-                }
-
-                if !self.register_execution(order.order_link_id, &order.exec_id) {
-                    warn!(
-                        "DISCARDED duplicate execution {} for order {}",
-                        order.exec_id, order.order_link_id
-                    );
-                    return;
-                }
-
-                // NOTE: this is to prevent manual orders on the UI to
-                // affect the logic of the bot.
-                info!(
-                    "Execution order {} {:.3} {:.0}",
-                    order.order_link_id, order.exec_price, order.exec_qty
-                );
-
-                let old_inventory = self.metrics.inventory();
-                self.metrics.update(
-                    order.exec_price,
-                    order.exec_qty,
-                    order.exec_fee,
-                    order.order_side,
-                );
-                if old_inventory.is_sign_negative() && self.metrics.inventory().is_sign_positive() {
-                    // NOTE: The new inventory is positive, therefore we can repay the borrowed
-                    // money. It is assumed it is triggered less than 1
-                    // time per second.
-                    self.order_gateway.repay_liability(&self.coin);
-                }
-                self.to_strategy.force_push(self.metrics.inventory());
-            }
+    pub fn order_response(&mut self, event: OrderEvent) {
+        match event {
+            OrderEvent::OrderUpdate(order) => self.handle_order_update(order),
+            OrderEvent::ExecutionUpdate(order) => self.handle_execution_update(order),
             OrderEvent::SubmissionFailed { order_link_id } => {
-                let Some(&slab_id) = self.id_map.get(&order_link_id) else {
-                    warn!("DISCARDED submission failure for order {order_link_id}");
-                    return;
-                };
-                let Some(old_order) = self.orders.get_mut(slab_id) else {
-                    warn!("DISCARDED submission failure for missing order {order_link_id}");
-                    return;
-                };
-                // TODO: can the following check be removed?
-                if old_order.order_status != OrderStatus::Submitted {
-                    warn!(
-                        "DISCARDED submission failure for order {order_link_id} in state {:?}",
-                        old_order.order_status
-                    );
-                    return;
-                }
-
-                old_order.order_status = OrderStatus::Rejected;
-                warn!("Order {order_link_id} rejected during submission");
+                self.handle_submission_failure(order_link_id);
             }
-        };
+        }
 
         info!(
             "Inventory {:.3} | Avg price {:.3}",
             self.metrics.inventory(),
             self.metrics.average_entry_price()
         );
+    }
+
+    fn handle_order_update(&mut self, order: OrderUpdate) {
+        let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
+            warn!("DISCARDED updated order {}", &order.order_link_id);
+            return;
+        };
+        // NOTE: assuming order exists already!
+        if let Some(old_order) = self.orders.get_mut(*slab_id) {
+            // NOTE: this is to prevent manual orders on the UI to
+            // affect the logic of the bot.
+            info!(
+                "Updated order {} {:?} {:.3} {:.0}",
+                order.order_link_id, order.order_status, order.filled_price, order.filled_qty
+            );
+
+            old_order.price = order.price;
+            old_order.qty = order.qty;
+            old_order.order_status = order.order_status;
+            old_order.filled_price = order.filled_price;
+            old_order.filled_qty = order.filled_qty;
+            old_order.updated_time = order.updated_time;
+
+            // TODO: Add order removal from Slab when they are closed to
+            // clear up the memory.
+        };
+    }
+
+    fn handle_execution_update(&mut self, order: OrderExecution) {
+        if order.exec_id.is_empty() {
+            warn!(
+                "DISCARDED execution, empty ID for order {}",
+                order.order_link_id
+            );
+            return;
+        }
+
+        let Some(&slab_id) = self.id_map.get(&order.order_link_id) else {
+            warn!(
+                "DISCARDED execution {}, order slab {} not found",
+                order.exec_id, order.order_link_id
+            );
+            return;
+        };
+
+        if !self.orders.contains(slab_id) {
+            warn!(
+                "DISCARDED execution {}, order {} not found",
+                order.exec_id, order.order_link_id
+            );
+            return;
+        }
+
+        if !self.register_execution(order.order_link_id, &order.exec_id) {
+            warn!(
+                "DISCARDED duplicate execution {} for order {}",
+                order.exec_id, order.order_link_id
+            );
+            return;
+        }
+
+        // NOTE: this is to prevent manual orders on the UI to
+        // affect the logic of the bot.
+        info!(
+            "Execution order {} {:.3} {:.0}",
+            order.order_link_id, order.exec_price, order.exec_qty
+        );
+
+        let old_inventory = self.metrics.inventory();
+        self.metrics.update(
+            order.exec_price,
+            order.exec_qty,
+            order.exec_fee,
+            order.order_side,
+        );
+        if old_inventory.is_sign_negative() && self.metrics.inventory().is_sign_positive() {
+            // NOTE: The new inventory is positive, therefore we can repay the borrowed
+            // money. It is assumed it is triggered less than 1
+            // time per second.
+            self.order_gateway.repay_liability(&self.coin);
+        }
+        self.to_strategy.force_push(self.metrics.inventory());
+    }
+
+    fn handle_submission_failure(&mut self, order_link_id: u64) {
+        let Some(&slab_id) = self.id_map.get(&order_link_id) else {
+            warn!("DISCARDED submission failure for order {order_link_id}");
+            return;
+        };
+        let Some(old_order) = self.orders.get_mut(slab_id) else {
+            warn!("DISCARDED submission failure for missing order {order_link_id}");
+            return;
+        };
+        // TODO: can the following check be removed?
+        if old_order.order_status != OrderStatus::Submitted {
+            warn!(
+                "DISCARDED submission failure for order {order_link_id} in state {:?}",
+                old_order.order_status
+            );
+            return;
+        }
+
+        old_order.order_status = OrderStatus::Rejected;
+        warn!("Order {order_link_id} rejected during submission");
     }
 }
 
