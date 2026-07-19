@@ -3,6 +3,7 @@ use std::str::FromStr;
 use exchange::{Order, OrderAmendedBuilder, OrderBuilder, OrderSide};
 use slab::Slab;
 
+#[derive(Debug, PartialEq)]
 pub enum Outcome {
     NewOrder(OrderBuilder),
     AmendOrder(OrderAmendedBuilder),
@@ -58,6 +59,9 @@ impl RiskPolicy for RiskManager {
         else {
             return Outcome::NewOrder(new_order);
         };
+        if existing_order.order_status == exchange::OrderStatus::Submitted {
+            return Outcome::DoNothing;
+        }
 
         let amended_order = OrderAmendedBuilder {
             symbol: new_order.symbol,
@@ -74,5 +78,33 @@ impl RiskPolicy for RiskManager {
         }
 
         Outcome::AmendOrder(amended_order)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use exchange::OrderType;
+
+    use super::*;
+
+    #[test]
+    fn submitted_order_blocks_another_same_side_submission() {
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let mut orders = Slab::new();
+        orders.insert(order_builder.build(1000));
+
+        let changed_order = OrderBuilder {
+            price: "0.568".to_string(),
+            ..order_builder
+        };
+        let outcome = RiskManager.evaluate_order(&orders, changed_order, 0.0, 0.0);
+
+        assert_eq!(outcome, Outcome::DoNothing);
     }
 }

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
-use exchange::{Order, OrderBuilder, OrderGateway, OrderMessages};
+use exchange::{Order, OrderBuilder, OrderEvent, OrderGateway, OrderStatus};
 use log::{info, warn};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slab::Slab;
@@ -40,7 +40,7 @@ impl OmsConfig {
 #[derive(Debug)]
 pub struct OrderManagementSystem {
     from_strategy: Receiver<OrderBuilder>,
-    from_order_handler: Receiver<OrderMessages>,
+    from_order_handler: Receiver<OrderEvent>,
     to_strategy: Arc<ArrayQueue<f64>>,
     order_gateway: Box<dyn OrderGateway>,
     // TODO: the Slab will grow infinitely. It needs to be pruned when orders are completed.
@@ -56,7 +56,7 @@ pub struct OrderManagementSystem {
 impl OrderManagementSystem {
     pub fn new(
         from_strategy: Receiver<OrderBuilder>,
-        from_order_handler: Receiver<OrderMessages>,
+        from_order_handler: Receiver<OrderEvent>,
         to_strategy: Arc<ArrayQueue<f64>>,
         order_gateway: Box<dyn OrderGateway>,
         config: OmsConfig,
@@ -92,8 +92,8 @@ impl OrderManagementSystem {
                     }
                 },
                 recv(self.from_order_handler) -> msg => {
-                    if let Ok(new_order) = msg {
-                        self.order_response(new_order);
+                    if let Ok(event) = msg {
+                        self.order_response(event);
                     }
                 }
             }
@@ -137,14 +137,11 @@ impl OrderManagementSystem {
         };
     }
 
-    /// This function is responsible for recording the latest updates to the
-    /// orders submitted to the exchange. It populates the `active_orders`
-    /// HashMap as soon as the order has been submitted successfully to the
-    /// exchange. Further order updates are received from the orders WebSocket.
-    pub fn order_response(&mut self, new_order: OrderMessages) {
+    /// Records order events received from the exchange.
+    pub fn order_response(&mut self, new_order: OrderEvent) {
         // TODO: optimise insert or update logic.
         match new_order {
-            OrderMessages::OrderUpdate(order) => {
+            OrderEvent::OrderUpdate(order) => {
                 let Some(slab_id) = self.id_map.get(&order.order_link_id) else {
                     warn!("DISCARDED updated order {}", &order.order_link_id);
                     return;
@@ -172,7 +169,7 @@ impl OrderManagementSystem {
                     // clear up the memory.
                 };
             }
-            OrderMessages::ExecutionUpdate(order) => {
+            OrderEvent::ExecutionUpdate(order) => {
                 if order.exec_id.is_empty() {
                     warn!(
                         "DISCARDED execution, empty ID for order {}",
@@ -226,6 +223,27 @@ impl OrderManagementSystem {
                     self.order_gateway.repay_liability(&self.coin);
                 }
                 self.to_strategy.force_push(self.metrics.inventory());
+            }
+            OrderEvent::SubmissionFailed { order_link_id } => {
+                let Some(&slab_id) = self.id_map.get(&order_link_id) else {
+                    warn!("DISCARDED submission failure for order {order_link_id}");
+                    return;
+                };
+                let Some(old_order) = self.orders.get_mut(slab_id) else {
+                    warn!("DISCARDED submission failure for missing order {order_link_id}");
+                    return;
+                };
+                // TODO: can the following check be removed?
+                if old_order.order_status != OrderStatus::Submitted {
+                    warn!(
+                        "DISCARDED submission failure for order {order_link_id} in state {:?}",
+                        old_order.order_status
+                    );
+                    return;
+                }
+
+                old_order.order_status = OrderStatus::Rejected;
+                warn!("Order {order_link_id} rejected during submission");
             }
         };
 
@@ -561,6 +579,81 @@ mod tests {
     }
 
     #[test]
+    fn submission_failure_rejects_submitted_order() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+
+        test_bench
+            .oms
+            .order_response(OrderEvent::SubmissionFailed { order_link_id });
+
+        assert_eq!(
+            test_bench.stored_order(order_link_id).order_status,
+            OrderStatus::Rejected
+        );
+    }
+
+    #[test]
+    fn submission_failure_for_unknown_order_does_not_change_oms() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+
+        test_bench.oms.order_response(OrderEvent::SubmissionFailed {
+            order_link_id: 9999,
+        });
+
+        assert!(test_bench.oms.orders.is_empty());
+        assert!(test_bench.oms.id_map.is_empty());
+        assert_eq!(
+            test_bench.oms.id_generator.load(Ordering::Relaxed),
+            initial_order_link_id
+        );
+    }
+
+    #[test]
+    fn submission_failure_does_not_override_confirmed_order() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        let order_update = OrderUpdate {
+            order_link_id,
+            order_status: OrderStatus::New,
+            qty: order_builder.qty,
+            price: order_builder.price.parse().unwrap(),
+            filled_qty: 0.0,
+            filled_price: f64::NAN,
+            updated_time: 1_773_956_505_537,
+        };
+        test_bench
+            .oms
+            .order_response(OrderEvent::OrderUpdate(order_update));
+
+        test_bench
+            .oms
+            .order_response(OrderEvent::SubmissionFailed { order_link_id });
+
+        assert_eq!(
+            test_bench.stored_order(order_link_id).order_status,
+            OrderStatus::New
+        );
+    }
+
+    #[test]
     fn order_response_updates_existing_order() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
@@ -589,7 +682,7 @@ mod tests {
         };
         test_bench
             .oms
-            .order_response(OrderMessages::OrderUpdate(order_update.clone()));
+            .order_response(OrderEvent::OrderUpdate(order_update.clone()));
 
         assert_order_matches_update(
             test_bench.stored_order(order_link_id),
@@ -626,7 +719,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::OrderUpdate(unknown_order_update));
+            .order_response(OrderEvent::OrderUpdate(unknown_order_update));
 
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
@@ -655,7 +748,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update));
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
@@ -681,7 +774,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
         test_bench.assert_metrics(0.0, 0.0);
 
         let order_builder = OrderBuilder {
@@ -697,7 +790,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
         test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
@@ -728,7 +821,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
         test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
@@ -762,14 +855,14 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
         test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
         test_bench.assert_published_inventory(expected_inventory);
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         test_bench.assert_metrics(expected_inventory, execution_update.exec_price);
     }
@@ -798,13 +891,13 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
         let expected_inventory = execution_update.exec_qty - execution_update.exec_fee;
         test_bench.assert_published_inventory(expected_inventory);
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update));
 
         assert!(test_bench.oms.to_strategy.is_empty());
     }
@@ -840,7 +933,7 @@ mod tests {
         );
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = initial_inventory - execution_update.exec_qty;
         test_bench.assert_metrics(expected_inventory, initial_avg_entry_price);
@@ -880,7 +973,7 @@ mod tests {
         );
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory =
             initial_inventory + execution_update.exec_qty - execution_update.exec_fee;
@@ -918,7 +1011,7 @@ mod tests {
         );
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(execution_update.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(execution_update.clone()));
 
         let expected_inventory = initial_inventory - execution_update.exec_qty;
         assert_eq!(test_bench.oms.to_strategy.pop(), Some(expected_inventory));
@@ -957,13 +1050,13 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(first_execution.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(first_execution.clone()));
         let inventory_after_first_execution = first_execution.exec_qty - first_execution.exec_fee;
         test_bench.assert_metrics(inventory_after_first_execution, first_execution.exec_price);
 
         test_bench
             .oms
-            .order_response(OrderMessages::ExecutionUpdate(second_execution.clone()));
+            .order_response(OrderEvent::ExecutionUpdate(second_execution.clone()));
 
         let expected_inventory = 14.8;
         let expected_avg_entry_price = 0.833333;

@@ -4,7 +4,7 @@ use std::{f64, fmt};
 
 use crossbeam_channel::Receiver;
 use crossbeam_queue::ArrayQueue;
-use exchange::{OrderBook, OrderExecution, OrderMessages, OrderSide};
+use exchange::{OrderBook, OrderEvent, OrderExecution, OrderSide};
 use log::info;
 
 #[derive(Copy, Clone, Debug)]
@@ -59,13 +59,13 @@ impl fmt::Display for PendingMarkout {
 #[derive(Clone)]
 pub struct MarkoutEngine {
     from_book: Arc<ArrayQueue<OrderBook>>,
-    from_execution: Receiver<OrderMessages>,
+    from_execution: Receiver<OrderEvent>,
     trades: HashMap<String, PendingMarkout>, // key is execId
 }
 impl MarkoutEngine {
     pub fn new(
         from_book: Arc<ArrayQueue<OrderBook>>,
-        from_execution: Receiver<OrderMessages>,
+        from_execution: Receiver<OrderEvent>,
     ) -> Self {
         MarkoutEngine {
             from_book,
@@ -85,8 +85,8 @@ impl MarkoutEngine {
                 recv(self.from_execution) -> msg => {
                     if let Ok(new_execution) = msg {
                         match new_execution {
-                            OrderMessages::ExecutionUpdate(order_execution) => self.update_trades(order_execution),
-                            OrderMessages::OrderUpdate(_) => (),
+                            OrderEvent::ExecutionUpdate(order_execution) => self.update_trades(order_execution),
+                            OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed { .. } => (),
                         }
                     }
                 }

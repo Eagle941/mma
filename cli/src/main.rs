@@ -8,7 +8,7 @@ use crossbeam_queue::ArrayQueue;
 use env_logger::{Builder, Env};
 use exchange::bybit::market::Trades;
 use exchange::bybit::wallet::Wallet;
-use exchange::{OrderBook, OrderBuilder, OrderMessages};
+use exchange::{OrderBook, OrderBuilder, OrderEvent};
 use exitcode::{OK, SOFTWARE};
 use log::info;
 use oms::OmsConfig;
@@ -91,8 +91,8 @@ fn run(_args: Args) -> anyhow::Result<()> {
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
-    let (execution_to_oms, to_oms): (Sender<OrderMessages>, Receiver<OrderMessages>) = unbounded();
-    let (execution_to_recorder, to_recorder): (Sender<OrderMessages>, Receiver<OrderMessages>) =
+    let (order_event_to_oms, to_oms): (Sender<OrderEvent>, Receiver<OrderEvent>) = unbounded();
+    let (execution_to_recorder, to_recorder): (Sender<OrderEvent>, Receiver<OrderEvent>) =
         unbounded();
 
     // NOTE: The queue has a length of 1 because only the most recent value of
@@ -102,11 +102,13 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let from_oms = Arc::clone(&inventory_queue);
     let to_strategy = Arc::clone(&inventory_queue);
 
-    let private_ws_thread = create_private_ws_thread(execution_to_oms, execution_to_recorder)?;
+    let private_ws_thread =
+        create_private_ws_thread(order_event_to_oms.clone(), execution_to_recorder)?;
     let oms_thread = create_oms_thread(
         runtime_handle,
         from_strategy,
         to_oms,
+        order_event_to_oms,
         to_strategy,
         oms_config,
     )?;

@@ -80,7 +80,10 @@ impl OrderStatus {
     pub fn is_open(&self) -> bool {
         matches!(
             self,
-            OrderStatus::New | OrderStatus::PartiallyFilled | OrderStatus::Untriggered
+            OrderStatus::Submitted
+                | OrderStatus::New
+                | OrderStatus::PartiallyFilled
+                | OrderStatus::Untriggered
         )
     }
 
@@ -89,11 +92,12 @@ impl OrderStatus {
     }
 }
 
-pub enum OrderMessages {
+pub enum OrderEvent {
     OrderUpdate(OrderUpdate),
     ExecutionUpdate(OrderExecution),
+    SubmissionFailed { order_link_id: u64 },
 }
-impl<'a> From<&BybitOrder<'a>> for OrderMessages {
+impl<'a> From<&BybitOrder<'a>> for OrderEvent {
     fn from(src: &BybitOrder) -> Self {
         // TODO: this `try_into` is very dangerous. It needs to be improved.
         let order = OrderUpdate {
@@ -105,10 +109,10 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
             filled_price: f64::from_str(src.avg_price).unwrap_or(f64::NAN),
             updated_time: u64::from_str(src.updated_time).unwrap(),
         };
-        OrderMessages::OrderUpdate(order)
+        OrderEvent::OrderUpdate(order)
     }
 }
-impl<'a> From<&Execution<'a>> for OrderMessages {
+impl<'a> From<&Execution<'a>> for OrderEvent {
     fn from(src: &Execution) -> Self {
         let order = OrderExecution {
             order_id: src.order_id.to_string(),
@@ -122,7 +126,7 @@ impl<'a> From<&Execution<'a>> for OrderMessages {
             exec_fee: f64::from_str(src.exec_fee).unwrap_or(0.0),
             remaining_qty: f64::from_str(src.leaves_qty).unwrap(),
         };
-        OrderMessages::ExecutionUpdate(order)
+        OrderEvent::ExecutionUpdate(order)
     }
 }
 
@@ -135,7 +139,7 @@ pub struct OrderBuilder {
     pub price: String,
 }
 impl OrderBuilder {
-    // TODO: should it be converted to an Into trait of `OrderMessages`?
+    // TODO: should it be converted into an Into trait of `OrderEvent`?
     pub fn build(&self, order_link_id: u64) -> Order {
         Order {
             order_link_id,
@@ -164,7 +168,7 @@ pub trait OrderGateway: std::fmt::Debug {
     fn cancel_all(&self);
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct OrderAmendedBuilder {
     pub symbol: String,
     pub order_link_id: u64,
@@ -286,9 +290,9 @@ mod tests {
             updated_time: "1773956505537",
         };
 
-        let message = OrderMessages::from(&bybit_order);
+        let message = OrderEvent::from(&bybit_order);
 
-        let OrderMessages::OrderUpdate(order) = message else {
+        let OrderEvent::OrderUpdate(order) = message else {
             panic!("expected an order update");
         };
         assert_eq!(order.order_link_id, 1234);
@@ -341,9 +345,9 @@ mod tests {
             block_trade_id: "",
         };
 
-        let message = OrderMessages::from(&execution);
+        let message = OrderEvent::from(&execution);
 
-        let OrderMessages::ExecutionUpdate(order) = message else {
+        let OrderEvent::ExecutionUpdate(order) = message else {
             panic!("expected an execution update");
         };
         assert_eq!(order.order_link_id, 1234);
@@ -383,7 +387,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(OrderStatus::Submitted, false)]
+    #[case(OrderStatus::Submitted, true)]
     #[case(OrderStatus::New, true)]
     #[case(OrderStatus::PartiallyFilled, true)]
     #[case(OrderStatus::Untriggered, true)]
@@ -393,7 +397,7 @@ mod tests {
     #[case(OrderStatus::Cancelled, false)]
     #[case(OrderStatus::Triggered, false)]
     #[case(OrderStatus::Deactivated, false)]
-    fn order_status_is_open_identifies_exchange_confirmed_open_orders(
+    fn order_status_is_open_identifies_active_orders(
         #[case] status: OrderStatus,
         #[case] expected: bool,
     ) {
@@ -401,7 +405,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(OrderStatus::Submitted, true)]
+    #[case(OrderStatus::Submitted, false)]
     #[case(OrderStatus::New, false)]
     #[case(OrderStatus::PartiallyFilled, false)]
     #[case(OrderStatus::Untriggered, false)]

@@ -2,6 +2,7 @@ use std::env;
 use std::str::FromStr;
 
 use chrono::Utc;
+use crossbeam_channel::Sender;
 use log::{error, info, warn};
 use log_execution_time::log_execution_time;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -11,7 +12,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 
 use crate::bybit::utils::{generate_signature, get_base_url};
-use crate::{OrderAmendedBuilder, OrderBuilder, OrderGateway};
+use crate::{OrderAmendedBuilder, OrderBuilder, OrderEvent, OrderGateway};
 
 // TODO: Add automatic casting of `result` to various struct types like in bybit
 // library.
@@ -32,6 +33,13 @@ pub struct OrderResponse<'a> {
     pub order_link_id: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum RequestOutcome {
+    Accepted,
+    Rejected { code: u32 },
+    Unknown,
+}
+
 #[derive(Clone, Debug)]
 pub struct OrderHandler {
     base_url: String,
@@ -39,11 +47,12 @@ pub struct OrderHandler {
     api_secret: String,
     recv_window: String,
     session: Client,
+    to_oms: Sender<OrderEvent>,
 }
 impl OrderHandler {
     // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(to_oms: Sender<OrderEvent>) -> Self {
         let base_url = get_base_url();
         let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
         let api_secret =
@@ -71,81 +80,104 @@ impl OrderHandler {
             api_secret,
             recv_window,
             session,
+            to_oms,
         }
     }
 
-    async fn send_request(request: RequestBuilder, order_link_id: u64) {
-        let res = request.send().await;
-        match res {
-            Ok(x) => {
-                if !x.status().is_success() {
-                    panic!("Failed order response. Status code {}", x.status());
-                }
-                let url = x.url().clone();
-                // NOTE: The current handling of zero requests left is very simple because HTTP
-                // requests will be replaced by WebSocket orders and the test strategy will run
-                // at low iteration rate to guarantee safety.
-                let api_limit_status: u8 = (u8::from_str(
-                    x.headers()
-                        .get("x-bapi-limit-status")
-                        .unwrap_or(&HeaderValue::from_str("10").unwrap())
-                        .to_str()
-                        .unwrap(),
-                ))
-                .unwrap();
-                if api_limit_status == 0 {
-                    panic!("Zero requests left for {url}");
-                } else if api_limit_status <= 2 {
-                    warn!("Remaining {api_limit_status} requests for {url}");
-                }
-                let raw_text = x.text().await.expect("Failed to read response text");
-                let content = serde_json::from_str::<CommonResponse>(&raw_text).unwrap();
-                match content.ret_code {
-                    0 => (),
-                    10001 | 10002 | 170194 | 170193 | 170213 => {
-                        // Timestamp for this request is outside of the
-                        // recvWindow.
-                        // NOTE: if the order request took too long to
-                        // arrive, just skip the order and let the strategy send a new one in the
-                        // next cycle with updated values.
-                        // Sell order price cannot be lower than %s.
-                        // Buy order price cannot be higher than %s.
-                        // NOTE: This error occurs when order book changed
-                        // while submitting the order. Wait for the next cycle to submit another
-                        // order at a different price.
-                        // The order remains unchanged as the parameters
-                        // entered match the existing ones.
-                        // NOTE: This error occurs
-                        // when two identical amend orders are issued at the
-                        // same time due to the latency to receive the HTTP response.
-                        // Order does not exist.
-                        // NOTE: This error occurs when an order is filled
-                        // during the amend
-                        // request.
-                        info!(
-                            "{url} error. {} Code: {}. Msg: {}",
-                            order_link_id, content.ret_code, content.ret_msg
-                        );
-                    }
-                    10000 | 10016 => {
-                        // Server Timeout
-                        // internal server error
-                        // For orders, this is triggered when the request rate limit is
-                        // exceeded.
-                        // The call to quick-repayment also returns 10016 even when the repayment
-                        // was executed successfully, therefore I don't want to panic.
-                        // NOTE: this was changed from panic! to error! for quick-repayment not to
-                        // crash the bot.
-                        error!("{url} Internal server error.")
-                    }
-                    _ => panic!(
-                        "Failed {url} request. Code: {}. Msg: {}",
-                        content.ret_code, content.ret_msg
-                    ),
+    async fn send_request(request: RequestBuilder, order_link_id: u64) -> RequestOutcome {
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(_) => {
+                return RequestOutcome::Unknown;
+            }
+        };
+
+        if !response.status().is_success() {
+            return RequestOutcome::Unknown;
+        }
+
+        let url = response.url().clone();
+        // NOTE: The current handling of zero requests left is very simple because HTTP
+        // requests will be replaced by WebSocket orders and the test strategy will run
+        // at low iteration rate to guarantee safety.
+        if let Some(api_limit_status) = response
+            .headers()
+            .get("x-bapi-limit-status")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| u8::from_str(value).ok())
+        {
+            if api_limit_status == 0 {
+                error!("Zero requests left for {url}");
+            } else if api_limit_status <= 2 {
+                warn!("Remaining {api_limit_status} requests for {url}");
+            }
+        }
+
+        let raw_text = match response.text().await {
+            Ok(raw_text) => raw_text,
+            Err(_) => {
+                return RequestOutcome::Unknown;
+            }
+        };
+
+        let content = match serde_json::from_str::<CommonResponse>(&raw_text) {
+            Ok(content) => content,
+            Err(_) => {
+                return RequestOutcome::Unknown;
+            }
+        };
+
+        // TODO: replace ret_code matching with enum
+        match content.ret_code {
+            0 => RequestOutcome::Accepted,
+            10001 | 10002 | 170194 | 170193 | 170213 => {
+                // Timestamp for this request is outside of the
+                // recvWindow.
+                // NOTE: if the order request took too long to
+                // arrive, just skip the order and let the strategy send a new one in the
+                // next cycle with updated values.
+                // Sell order price cannot be lower than %s.
+                // Buy order price cannot be higher than %s.
+                // NOTE: This error occurs when order book changed
+                // while submitting the order. Wait for the next cycle to submit another
+                // order at a different price.
+                // The order remains unchanged as the parameters
+                // entered match the existing ones.
+                // NOTE: This error occurs
+                // when two identical amend orders are issued at the
+                // same time due to the latency to receive the HTTP response.
+                // Order does not exist.
+                // NOTE: This error occurs when an order is filled
+                // during the amend
+                // request.
+                info!(
+                    "{url} error. {} Code: {}. Msg: {}",
+                    order_link_id, content.ret_code, content.ret_msg
+                );
+                RequestOutcome::Rejected {
+                    code: content.ret_code,
                 }
             }
-            Err(x) => {
-                panic!("Failed to send order request {x}");
+            10000 | 10016 => {
+                // Server Timeout
+                // internal server error
+                // For orders, this is triggered when the request rate limit is
+                // exceeded.
+                // The call to quick-repayment also returns 10016 even when the repayment
+                // was executed successfully, therefore I don't want to panic.
+                // NOTE: this was changed from panic! to error! for quick-repayment not to
+                // crash the bot.
+                error!("{url} Internal server error.");
+                RequestOutcome::Rejected {
+                    code: content.ret_code,
+                }
+            }
+            _ => {
+                // Panic in case of unknown code to catch bugs and undefined behaviour.
+                panic!(
+                    "Failed {url} request. Code: {}. Msg: {}",
+                    content.ret_code, content.ret_msg
+                )
             }
         }
     }
@@ -187,12 +219,19 @@ impl OrderGateway for OrderHandler {
             .header("X-BAPI-SIGN", signature)
             .header("X-BAPI-TIMESTAMP", time_ms)
             .json(&body);
-        // TODO: move from HTTP request to WebSocket
-        // TODO: find a proper way to deal with failed orders
+        let to_oms = self.to_oms.clone();
         tokio::spawn(async move {
             let start = std::time::Instant::now();
 
-            Self::send_request(request, order_link_id).await;
+            match Self::send_request(request, order_link_id).await {
+                RequestOutcome::Accepted => (),
+                _ => {
+                    // TODO: Reconcile ambiguous submissions by querying Bybit with order_link_id.
+                    to_oms
+                        .send(OrderEvent::SubmissionFailed { order_link_id })
+                        .unwrap();
+                }
+            }
 
             let duration = start.elapsed();
             log::info!("Execution time of `send_request`: {:.2?}", duration);
@@ -239,6 +278,9 @@ impl OrderGateway for OrderHandler {
         tokio::spawn(async move {
             let start = std::time::Instant::now();
 
+            // NOTE: `RequestOutcome` is not fed back to the OMS because if the
+            // order change wasn't successful, it will be re-updated with the
+            // next refresh of the order book.
             Self::send_request(request, order_link_id).await;
 
             let duration = start.elapsed();
@@ -272,6 +314,7 @@ impl OrderGateway for OrderHandler {
             // NOTE: error 999 is used because an order id is required, but there is no
             // order id for cancel-all. I am not using an Option type to reduce the
             // overhead.
+            // NOTE: `RequestOutcome` is not fed back to the OMS
             Self::send_request(request, 999).await;
 
             let duration = start.elapsed();
@@ -311,6 +354,7 @@ impl OrderGateway for OrderHandler {
             // NOTE: error 999 is used because an order id is required, but there is no
             // order id for cancel-all. I am not using an Option type to reduce the
             // overhead.
+            // NOTE: `RequestOutcome` is not fed back to the OMS
             Self::send_request(request, 999).await;
 
             let duration = start.elapsed();

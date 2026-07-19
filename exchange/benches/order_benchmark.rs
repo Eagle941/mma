@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use crossbeam_channel::unbounded;
 use exchange::bybit::order::OrderHandler;
 use exchange::{OrderBuilder, OrderGateway, OrderSide, OrderType};
 
@@ -19,7 +20,8 @@ fn bench_order_handler(c: &mut Criterion) {
         .as_micros() as u64;
     let id_generator = AtomicU64::new(start_time_micros);
 
-    let handler = OrderHandler::new();
+    let (to_oms, _) = unbounded();
+    let handler = OrderHandler::new(to_oms);
     let submit_builder = OrderBuilder {
         symbol: "ADAUSDT".to_string(),
         side: OrderSide::Buy,

@@ -8,7 +8,7 @@ use crossbeam_queue::ArrayQueue;
 use exchange::bybit::order::OrderHandler;
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
-use exchange::{OrderBook, OrderBuilder, OrderMessages};
+use exchange::{OrderBook, OrderBuilder, OrderEvent};
 use oms::{OmsConfig, OrderManagementSystem};
 use recorder::MarkoutEngine;
 use strategy::simple::SimpleStrategy;
@@ -29,8 +29,8 @@ pub(super) fn create_public_ws_thread(
 }
 
 pub(super) fn create_private_ws_thread(
-    to_oms: Sender<OrderMessages>,
-    to_recorder: Sender<OrderMessages>,
+    to_oms: Sender<OrderEvent>,
+    to_recorder: Sender<OrderEvent>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("private_ws_thread".to_string())
@@ -43,7 +43,8 @@ pub(super) fn create_private_ws_thread(
 pub(super) fn create_oms_thread(
     runtime_handle: tokio::runtime::Handle,
     from_strategy: Receiver<OrderBuilder>,
-    from_order_handler: Receiver<OrderMessages>,
+    from_order_handler: Receiver<OrderEvent>,
+    order_gateway_to_oms: Sender<OrderEvent>,
     to_strategy: Arc<ArrayQueue<f64>>,
     oms_config: OmsConfig,
 ) -> io::Result<JoinHandle<()>> {
@@ -52,7 +53,7 @@ pub(super) fn create_oms_thread(
         .spawn(move || {
             let guard = runtime_handle.enter();
 
-            let order_gateway = Box::new(OrderHandler::new());
+            let order_gateway = Box::new(OrderHandler::new(order_gateway_to_oms));
             let mut oms = OrderManagementSystem::new(
                 from_strategy,
                 from_order_handler,
@@ -68,7 +69,7 @@ pub(super) fn create_oms_thread(
 
 pub(super) fn create_recorder_thread(
     from_book: Arc<ArrayQueue<OrderBook>>,
-    from_execution: Receiver<OrderMessages>,
+    from_execution: Receiver<OrderEvent>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("recorder_thread".to_string())

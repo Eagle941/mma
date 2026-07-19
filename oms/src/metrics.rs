@@ -7,7 +7,7 @@ pub struct Metrics {
     /// The inventory before subtracting buy-fees
     /// NOTE:
     /// - It is initialised to `net_inventory` because it's not possible to
-    /// reconstruct the fees paid at startup.
+    ///   reconstruct the fees paid at startup.
     /// - It is not reset to 0 when the position is closed.
     gross_inventory: f64,
     average_entry_price: f64,
