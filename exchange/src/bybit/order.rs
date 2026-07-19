@@ -36,7 +36,7 @@ pub struct OrderResponse<'a> {
 #[derive(Clone, Debug, PartialEq)]
 enum RequestOutcome {
     Accepted,
-    Rejected { code: u32 },
+    Rejected(u32),
     Unknown,
 }
 
@@ -154,9 +154,7 @@ impl OrderHandler {
                     "{url} error. {} Code: {}. Msg: {}",
                     order_link_id, content.ret_code, content.ret_msg
                 );
-                RequestOutcome::Rejected {
-                    code: content.ret_code,
-                }
+                RequestOutcome::Rejected(content.ret_code)
             }
             10000 | 10016 => {
                 // Server Timeout
@@ -168,9 +166,7 @@ impl OrderHandler {
                 // NOTE: this was changed from panic! to error! for quick-repayment not to
                 // crash the bot.
                 error!("{url} Internal server error.");
-                RequestOutcome::Rejected {
-                    code: content.ret_code,
-                }
+                RequestOutcome::Rejected(content.ret_code)
             }
             _ => {
                 // Panic in case of unknown code to catch bugs and undefined behaviour.
