@@ -86,7 +86,7 @@ impl MarkoutEngine {
                     if let Ok(new_execution) = msg {
                         match new_execution {
                             OrderEvent::ExecutionUpdate(order_execution) => self.update_trades(order_execution),
-                            OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed { .. } => (),
+                            OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed(_) => (),
                         }
                     }
                 }

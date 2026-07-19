@@ -228,7 +228,7 @@ impl OrderGateway for OrderHandler {
                 _ => {
                     // TODO: Reconcile ambiguous submissions by querying Bybit with order_link_id.
                     to_oms
-                        .send(OrderEvent::SubmissionFailed { order_link_id })
+                        .send(OrderEvent::SubmissionFailed(order_link_id))
                         .unwrap();
                 }
             }

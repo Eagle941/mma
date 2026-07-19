@@ -150,7 +150,7 @@ impl OrderManagementSystem {
         match event {
             OrderEvent::OrderUpdate(order) => self.handle_order_update(order),
             OrderEvent::ExecutionUpdate(order) => self.handle_execution_update(order),
-            OrderEvent::SubmissionFailed { order_link_id } => {
+            OrderEvent::SubmissionFailed(order_link_id) => {
                 self.handle_submission_failure(order_link_id);
             }
         }
@@ -605,7 +605,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderEvent::SubmissionFailed { order_link_id });
+            .order_response(OrderEvent::SubmissionFailed(order_link_id));
 
         assert_eq!(
             test_bench.stored_order(order_link_id).order_status,
@@ -618,9 +618,9 @@ mod tests {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
 
-        test_bench.oms.order_response(OrderEvent::SubmissionFailed {
-            order_link_id: 9999,
-        });
+        test_bench
+            .oms
+            .order_response(OrderEvent::SubmissionFailed(9999));
 
         assert!(test_bench.oms.orders.is_empty());
         assert!(test_bench.oms.id_map.is_empty());
@@ -657,7 +657,7 @@ mod tests {
 
         test_bench
             .oms
-            .order_response(OrderEvent::SubmissionFailed { order_link_id });
+            .order_response(OrderEvent::SubmissionFailed(order_link_id));
 
         assert_eq!(
             test_bench.stored_order(order_link_id).order_status,
