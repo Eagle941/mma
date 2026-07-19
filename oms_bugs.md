@@ -1,6 +1,6 @@
 Confirmed bugs
 
-### 1. Duplicate execution messages double-count inventory
+### 1. Duplicate execution messages double-count inventory (Done)
 
 `order_response` applies every `ExecutionUpdate` unconditionally:
 
@@ -37,7 +37,7 @@ This is a financial-state corruption bug regardless of why a duplicate arrives. 
 
 ---
 
-### 2. Average entry price uses fee-adjusted inventory
+### 2. Average entry price uses fee-adjusted inventory (Done)
 
 This is already demonstrated by the two failing tests in `oms/src/metrics.rs`.
 
@@ -60,7 +60,7 @@ as previously discussed.
 
 ---
 
-### 3. `Submitted` orders do not prevent duplicate same-side submissions
+### 3. `Submitted` orders do not prevent duplicate same-side submissions (Done)
 
 `forward_orders` inserts an order immediately:
 
@@ -98,7 +98,7 @@ Example:
 
 ---
 
-### 4. Failed submissions remain permanently stored as `Submitted`
+### 4. Failed submissions remain permanently stored as `Submitted` (Done)
 
 `OrderGateway::submit_order` returns `()` and the Bybit implementation starts an asynchronous task. The OMS cannot learn whether dispatch or exchange acceptance failed.
 
@@ -248,7 +248,7 @@ A dedicated shutdown channel would provide clearer lifecycle control.
 
 ## Message-ordering bugs
 
-### 9. Older order updates can overwrite newer state
+### 9. Older order updates can overwrite newer state (Done)
 
 `OrderUpdate` contains `updated_time`, but the OMS never compares it with the stored order’s timestamp.
 

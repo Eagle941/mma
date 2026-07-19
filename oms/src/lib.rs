@@ -91,6 +91,7 @@ impl OrderManagementSystem {
     pub fn cycle(&mut self) {
         let risk_manager = RiskManager;
 
+        // TODO: if either channel disconnects, the thread should quit
         loop {
             crossbeam_channel::select! {
                 recv(self.from_strategy) -> msg => {
@@ -169,6 +170,11 @@ impl OrderManagementSystem {
         };
         // NOTE: assuming order exists already!
         if let Some(old_order) = self.orders.get_mut(*slab_id) {
+            if order.updated_time < old_order.updated_time {
+                warn!("DISCARDED stale update for order {}", order.order_link_id);
+                return;
+            }
+
             // NOTE: this is to prevent manual orders on the UI to
             // affect the logic of the bot.
             info!(
@@ -700,6 +706,51 @@ mod tests {
             test_bench.stored_order(order_link_id),
             &order_builder,
             &order_update,
+        );
+    }
+
+    #[test]
+    fn order_response_ignores_order_update_older_than_stored_state() {
+        let initial_order_link_id = 1000;
+        let mut test_bench = OmsTestBench::new(initial_order_link_id);
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let order_link_id = test_bench.submit_new_order(&order_builder);
+        let newer_update = OrderUpdate {
+            order_link_id,
+            order_status: OrderStatus::Filled,
+            qty: 30.0,
+            price: 0.568,
+            filled_qty: 30.0,
+            filled_price: 0.5675,
+            updated_time: 200,
+        };
+        let older_update = OrderUpdate {
+            order_link_id,
+            order_status: OrderStatus::PartiallyFilled,
+            qty: 25.0,
+            price: 0.567,
+            filled_qty: 10.0,
+            filled_price: 0.567,
+            updated_time: 100,
+        };
+        test_bench
+            .oms
+            .order_response(OrderEvent::OrderUpdate(newer_update.clone()));
+
+        test_bench
+            .oms
+            .order_response(OrderEvent::OrderUpdate(older_update));
+
+        assert_order_matches_update(
+            test_bench.stored_order(order_link_id),
+            &order_builder,
+            &newer_update,
         );
     }
 
