@@ -36,6 +36,7 @@ pub struct OrderResponse<'a> {
 #[derive(Clone, Debug, PartialEq)]
 enum RequestOutcome {
     Accepted,
+    /// return code
     Rejected(u32),
     Unknown,
 }

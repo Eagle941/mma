@@ -95,6 +95,7 @@ impl OrderStatus {
 pub enum OrderEvent {
     OrderUpdate(OrderUpdate),
     ExecutionUpdate(OrderExecution),
+    /// order_link_id
     SubmissionFailed(u64),
 }
 impl<'a> From<&BybitOrder<'a>> for OrderEvent {

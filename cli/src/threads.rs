@@ -15,82 +15,83 @@ use strategy::simple::SimpleStrategy;
 use triple_buffer::{Input, Output};
 
 pub(super) fn create_public_ws_thread(
-    to_recorder: Arc<ArrayQueue<OrderBook>>,
-    mut producer: Input<OrderBook>,
+    recorder_order_books: Arc<ArrayQueue<OrderBook>>,
+    mut order_book_input: Input<OrderBook>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("public_ws_thread".to_string())
         .spawn(move || {
             let symbol =
                 env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-            let mut handler = PublicWebSocket::new(to_recorder);
-            handler.subscribe(&mut producer, &symbol);
+            let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+            public_websocket.subscribe(&mut order_book_input, &symbol);
         })
 }
 
 pub(super) fn create_private_ws_thread(
-    to_oms: Sender<OrderEvent>,
-    to_recorder: Sender<OrderEvent>,
+    order_events_tx: Sender<OrderEvent>,
+    recorder_events_tx: Sender<OrderEvent>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("private_ws_thread".to_string())
         .spawn(move || {
-            let handler = PrivateWebSocket::new(to_oms, to_recorder);
-            handler.subscribe();
+            let private_websocket = PrivateWebSocket::new(order_events_tx, recorder_events_tx);
+            private_websocket.subscribe();
         })
 }
 
 pub(super) fn create_oms_thread(
     runtime_handle: tokio::runtime::Handle,
-    from_strategy: Receiver<OrderBuilder>,
-    from_order_handler: Receiver<OrderEvent>,
-    order_gateway_to_oms: Sender<OrderEvent>,
-    to_strategy: Arc<ArrayQueue<f64>>,
+    strategy_orders_rx: Receiver<OrderBuilder>,
+    order_events_rx: Receiver<OrderEvent>,
+    gateway_events_tx: Sender<OrderEvent>,
+    oms_inventory: Arc<ArrayQueue<f64>>,
     oms_config: OmsConfig,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("oms_thread".to_string())
         .spawn(move || {
-            let guard = runtime_handle.enter();
+            let runtime_guard = runtime_handle.enter();
 
-            let order_gateway = Box::new(OrderHandler::new(order_gateway_to_oms));
+            let order_handler = Box::new(OrderHandler::new(gateway_events_tx));
             let mut oms = OrderManagementSystem::new(
-                from_strategy,
-                from_order_handler,
-                to_strategy,
-                order_gateway,
+                strategy_orders_rx,
+                order_events_rx,
+                oms_inventory,
+                order_handler,
                 oms_config,
             );
             oms.cycle();
 
-            drop(guard)
+            drop(runtime_guard)
         })
 }
 
 pub(super) fn create_recorder_thread(
-    from_book: Arc<ArrayQueue<OrderBook>>,
-    from_execution: Receiver<OrderEvent>,
+    recorder_order_books: Arc<ArrayQueue<OrderBook>>,
+    recorder_events_rx: Receiver<OrderEvent>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("recorder_thread".to_string())
         .spawn(move || {
-            let mut recorder = MarkoutEngine::new(from_book, from_execution);
+            let mut recorder = MarkoutEngine::new(recorder_order_books, recorder_events_rx);
             recorder.cycle();
         })
 }
 
 pub(super) fn create_strategy_thread(
-    to_oms: Sender<OrderBuilder>,
-    from_oms: Arc<ArrayQueue<f64>>,
-    mut consumer: Output<OrderBook>,
+    strategy_orders_tx: Sender<OrderBuilder>,
+    strategy_inventory: Arc<ArrayQueue<f64>>,
+    mut order_book_output: Output<OrderBook>,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("strategy_thread".to_string())
         .spawn(move || {
-            let mut simple_strategy = SimpleStrategy::factory(to_oms, from_oms);
+            let mut simple_strategy =
+                SimpleStrategy::factory(strategy_orders_tx, strategy_inventory);
             loop {
                 // NOTE: strategy is executed at around 1Hz for learning
-                let order_book = consumer.read();
+                let order_book = order_book_output.read();
                 simple_strategy.execute(order_book);
                 thread::sleep(Duration::from_millis(1000));
             }

@@ -78,45 +78,46 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let oms_config = load_oms_config();
 
     let order_book = OrderBook::default();
-    let (producer, consumer) = TripleBuffer::new(&order_book).split();
+    let (order_book_input, order_book_output) = TripleBuffer::new(&order_book).split();
 
     // NOTE: The queue has a length of 1 because only the most recent value of
     // order_book is useful. If the queue is full, the value is replaced.
     let order_book_queue: ArrayQueue<OrderBook> = ArrayQueue::new(1);
     let order_book_queue = Arc::new(order_book_queue);
-    let to_recorder = Arc::clone(&order_book_queue);
-    let from_book = Arc::clone(&order_book_queue);
+    let public_ws_order_books = Arc::clone(&order_book_queue);
+    let recorder_order_books = Arc::clone(&order_book_queue);
 
-    let public_ws_thread = create_public_ws_thread(to_recorder, producer)?;
+    let public_ws_thread = create_public_ws_thread(public_ws_order_books, order_book_input)?;
 
-    let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
+    let (strategy_orders_tx, strategy_orders_rx): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
-    let (order_event_to_oms, to_oms): (Sender<OrderEvent>, Receiver<OrderEvent>) = unbounded();
-    let (execution_to_recorder, to_recorder): (Sender<OrderEvent>, Receiver<OrderEvent>) =
+    let (order_events_tx, order_events_rx): (Sender<OrderEvent>, Receiver<OrderEvent>) =
+        unbounded();
+    let (recorder_events_tx, recorder_events_rx): (Sender<OrderEvent>, Receiver<OrderEvent>) =
         unbounded();
 
     // NOTE: The queue has a length of 1 because only the most recent value of
     // inventory is useful. If the queue is full, the value is replaced.
     let inventory_queue: ArrayQueue<f64> = ArrayQueue::new(1);
     let inventory_queue = Arc::new(inventory_queue);
-    let from_oms = Arc::clone(&inventory_queue);
-    let to_strategy = Arc::clone(&inventory_queue);
+    let strategy_inventory = Arc::clone(&inventory_queue);
+    let oms_inventory = Arc::clone(&inventory_queue);
 
-    let private_ws_thread =
-        create_private_ws_thread(order_event_to_oms.clone(), execution_to_recorder)?;
+    let private_ws_thread = create_private_ws_thread(order_events_tx.clone(), recorder_events_tx)?;
     let oms_thread = create_oms_thread(
         runtime_handle,
-        from_strategy,
-        to_oms,
-        order_event_to_oms,
-        to_strategy,
+        strategy_orders_rx,
+        order_events_rx,
+        order_events_tx,
+        oms_inventory,
         oms_config,
     )?;
-    let recorder_thread = create_recorder_thread(from_book, to_recorder)?;
+    let recorder_thread = create_recorder_thread(recorder_order_books, recorder_events_rx)?;
 
     // NOTE: start startegy last after everything else has initialised.
     // TODO: should I add a delay?
-    let strategy_thread = create_strategy_thread(order_builder_to_oms, from_oms, consumer)?;
+    let strategy_thread =
+        create_strategy_thread(strategy_orders_tx, strategy_inventory, order_book_output)?;
 
     // TODO: Add a function that creates the communication channels and starts all
     // worker threads, returning their handles. Add a separate function that
