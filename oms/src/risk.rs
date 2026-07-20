@@ -42,6 +42,8 @@ impl RiskPolicy for RiskManager {
         inventory: f64,
         _average_entry_price: f64,
     ) -> Outcome {
+        // NOTE: These limits use current inventory only. They do not account for the
+        // quantity of this order or other open orders that may still execute.
         if inventory >= MAX_INVENTORY && new_order.side == OrderSide::Buy {
             return Outcome::DoNothing;
         }
@@ -83,9 +85,173 @@ impl RiskPolicy for RiskManager {
 
 #[cfg(test)]
 mod tests {
-    use exchange::OrderType;
+    use exchange::{OrderStatus, OrderType};
+    use rstest::rstest;
 
     use super::*;
+
+    #[rstest]
+    #[case(MAX_INVENTORY, OrderSide::Buy)]
+    #[case(MAX_INVENTORY + 1.0, OrderSide::Buy)]
+    #[case(MIN_INVENTORY, OrderSide::Sell)]
+    #[case(MIN_INVENTORY - 1.0, OrderSide::Sell)]
+    fn inventory_limit_blocks_orders_that_increase_exposure(
+        #[case] inventory: f64,
+        #[case] side: OrderSide,
+    ) {
+        let orders = Slab::new();
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let outcome = RiskManager.evaluate_order(&orders, order_builder, inventory, 0.0);
+
+        assert_eq!(outcome, Outcome::DoNothing);
+    }
+
+    #[rstest]
+    #[case(MAX_INVENTORY, OrderSide::Sell)]
+    #[case(MIN_INVENTORY, OrderSide::Buy)]
+    fn inventory_limit_allows_orders_that_reduce_exposure(
+        #[case] inventory: f64,
+        #[case] side: OrderSide,
+    ) {
+        let orders = Slab::new();
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let outcome = RiskManager.evaluate_order(&orders, order_builder.clone(), inventory, 0.0);
+
+        assert_eq!(outcome, Outcome::NewOrder(order_builder));
+    }
+
+    #[test]
+    fn empty_orders_returns_new_order() {
+        let orders = Slab::new();
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+
+        let outcome = RiskManager.evaluate_order(&orders, order_builder.clone(), 0.0, 0.0);
+
+        assert_eq!(outcome, Outcome::NewOrder(order_builder));
+    }
+
+    #[test]
+    fn opposite_side_open_order_does_not_block_new_order() {
+        let existing_order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Sell,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let mut existing_order = existing_order_builder.build(1000);
+        existing_order.order_status = OrderStatus::New;
+        let mut orders = Slab::new();
+        orders.insert(existing_order);
+        let new_order = OrderBuilder {
+            side: OrderSide::Buy,
+            ..existing_order_builder
+        };
+
+        let outcome = RiskManager.evaluate_order(&orders, new_order.clone(), 0.0, 0.0);
+
+        assert_eq!(outcome, Outcome::NewOrder(new_order));
+    }
+
+    #[test]
+    fn closed_same_side_order_does_not_block_new_order() {
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let mut closed_order = order_builder.build(1000);
+        closed_order.order_status = OrderStatus::Filled;
+        let mut orders = Slab::new();
+        orders.insert(closed_order);
+
+        let outcome = RiskManager.evaluate_order(&orders, order_builder.clone(), 0.0, 0.0);
+
+        assert_eq!(outcome, Outcome::NewOrder(order_builder));
+    }
+
+    #[test]
+    fn unchanged_open_order_returns_do_nothing() {
+        let order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let mut existing_order = order_builder.build(1000);
+        existing_order.order_status = OrderStatus::New;
+        let mut orders = Slab::new();
+        orders.insert(existing_order);
+
+        let outcome = RiskManager.evaluate_order(&orders, order_builder, 0.0, 0.0);
+
+        assert_eq!(outcome, Outcome::DoNothing);
+    }
+
+    #[rstest]
+    #[case("0.568", 25.0, true, false)]
+    #[case("0.567", 30.0, false, true)]
+    #[case("0.568", 30.0, true, true)]
+    fn changed_open_order_returns_amendment(
+        #[case] price: &str,
+        #[case] qty: f64,
+        #[case] expected_new_price: bool,
+        #[case] expected_new_qty: bool,
+    ) {
+        let existing_order_builder = OrderBuilder {
+            symbol: "ADAUSDT".to_string(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: 25.0,
+            price: "0.567".to_string(),
+        };
+        let mut existing_order = existing_order_builder.build(1000);
+        existing_order.order_status = OrderStatus::New;
+        let mut orders = Slab::new();
+        orders.insert(existing_order);
+        let changed_order = OrderBuilder {
+            qty,
+            price: price.to_string(),
+            ..existing_order_builder
+        };
+
+        let outcome = RiskManager.evaluate_order(&orders, changed_order, 0.0, 0.0);
+
+        assert_eq!(
+            outcome,
+            Outcome::AmendOrder(OrderAmendedBuilder {
+                symbol: "ADAUSDT".to_string(),
+                order_link_id: 1000,
+                qty,
+                price: price.to_string(),
+                new_price: expected_new_price,
+                new_qty: expected_new_qty,
+            })
+        );
+    }
 
     #[test]
     fn submitted_order_blocks_another_same_side_submission() {
