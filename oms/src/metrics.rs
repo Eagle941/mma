@@ -1,6 +1,6 @@
 use exchange::OrderSide;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {
     /// The actual inventory in the wallet
     net_inventory: f64,

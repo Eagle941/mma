@@ -22,7 +22,7 @@ use crate::risk::{Outcome, RiskManager, RiskPolicy};
 mod metrics;
 pub mod risk;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OmsConfig {
     coin: String,
     inventory: f64,
@@ -700,7 +700,7 @@ mod tests {
         };
         test_bench
             .oms
-            .order_response(OrderEvent::OrderUpdate(order_update.clone()));
+            .order_response(OrderEvent::OrderUpdate(order_update));
 
         assert_order_matches_update(
             test_bench.stored_order(order_link_id),
@@ -741,7 +741,7 @@ mod tests {
         };
         test_bench
             .oms
-            .order_response(OrderEvent::OrderUpdate(newer_update.clone()));
+            .order_response(OrderEvent::OrderUpdate(newer_update));
 
         test_bench
             .oms

@@ -55,7 +55,7 @@ impl fmt::Display for PendingMarkout {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MarkoutEngine {
     // TODO: Replace `ArrayQueue` with a latest-value data structure that notifies
     // the consumer when a new order book is available, eliminating polling.

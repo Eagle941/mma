@@ -16,7 +16,7 @@ use crate::{OrderAmendedBuilder, OrderBuilder, OrderEvent, OrderGateway};
 
 // TODO: Add automatic casting of `result` to various struct types like in bybit
 // library.
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommonResponse<'a> {
     pub ret_code: u32,
@@ -26,14 +26,14 @@ pub struct CommonResponse<'a> {
     pub time: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderResponse<'a> {
     pub order_id: &'a str,
     pub order_link_id: &'a str,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RequestOutcome {
     Accepted,
     /// return code

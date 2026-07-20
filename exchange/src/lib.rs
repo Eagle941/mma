@@ -9,7 +9,7 @@ use strum::{Display as EnumDisplay, EnumString};
 pub mod bybit;
 
 // TODO: make `OrderBook` struct shared across all exchanges.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Level {
     // TODO: verify if f64 is suitable for correctness and efficiency.
     pub price: f64,
@@ -32,7 +32,7 @@ impl<'a> From<&OrderbookItem<'a>> for Level {
 
 // TODO: investigate if it's possible to replace `Vec` with slice for bids and
 // asks levels.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct OrderBook {
     // Sorted by price in descending order.
     pub bids: Vec<Level>,
@@ -47,19 +47,19 @@ pub struct OrderBook {
     pub cts: u64,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq, Eq)]
 pub enum OrderSide {
     Buy,
     Sell,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq, Eq)]
 pub enum OrderType {
     Market,
     Limit,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq, Eq)]
 pub enum OrderStatus {
     // The status Submitted is used for orders which have been sent to the exchange, but no
     // response has been received yet. They may be lost or rejected.
@@ -92,6 +92,7 @@ impl OrderStatus {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum OrderEvent {
     OrderUpdate(OrderUpdate),
     ExecutionUpdate(OrderExecution),
@@ -181,7 +182,7 @@ pub struct OrderAmendedBuilder {
 
 // TODO: Add order timestamps
 // TODO: Is it better to keep price as String instead of f64?
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Order {
     pub order_link_id: u64,
     pub order_status: OrderStatus,
@@ -196,7 +197,7 @@ pub struct Order {
     pub updated_time: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct OrderExecution {
     pub order_link_id: u64,
     pub order_id: String,
@@ -211,14 +212,14 @@ pub struct OrderExecution {
     pub remaining_qty: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
 pub struct OrderAmend {
     pub order_link_id: u64,
     pub qty: f64,
     pub price: f64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct OrderUpdate {
     pub order_link_id: u64,
     pub order_status: OrderStatus,

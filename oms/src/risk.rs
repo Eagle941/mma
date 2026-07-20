@@ -3,7 +3,7 @@ use std::str::FromStr;
 use exchange::{Order, OrderAmendedBuilder, OrderBuilder, OrderSide};
 use slab::Slab;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     NewOrder(OrderBuilder),
     AmendOrder(OrderAmendedBuilder),
@@ -25,7 +25,7 @@ const MAX_INVENTORY: f64 = 500.0; // Quantity
 const MIN_INVENTORY: f64 = -500.0; // Quantity
 
 // TODO: This file may be moved to a dedicated library
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RiskManager;
 impl RiskManager {
     fn get_existing_order(orders: &Slab<Order>, side: OrderSide) -> Option<(usize, &Order)> {

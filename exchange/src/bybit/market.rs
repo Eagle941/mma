@@ -7,7 +7,7 @@ use crate::bybit::utils::get_base_url;
 
 // TODO: struct `Info` may need to become a shared struct common across
 // Exchanges.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Info {
     base_url: String,
     pub symbol: String,
@@ -108,7 +108,7 @@ impl Info {
 
 // TODO: struct `Trades` may need to become a shared struct common across
 // Exchanges.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Trades {
     base_url: String,
     pub symbol: String,
