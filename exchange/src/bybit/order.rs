@@ -208,8 +208,7 @@ impl OrderGateway for OrderHandler {
             &self.recv_window,
             &body.to_string(),
             &self.api_secret,
-        )
-        .unwrap();
+        );
         let request = self
             .session
             .post(url)
@@ -261,8 +260,7 @@ impl OrderGateway for OrderHandler {
             &self.recv_window,
             &body.to_string(),
             &self.api_secret,
-        )
-        .unwrap();
+        );
         let request = self
             .session
             .post(url)
@@ -296,8 +294,7 @@ impl OrderGateway for OrderHandler {
             &self.recv_window,
             &String::default(),
             &self.api_secret,
-        )
-        .unwrap();
+        );
         let request = self
             .session
             .post(url)
@@ -336,8 +333,7 @@ impl OrderGateway for OrderHandler {
             &self.recv_window,
             &body.to_string(),
             &self.api_secret,
-        )
-        .unwrap();
+        );
         let request = self
             .session
             .post(url)

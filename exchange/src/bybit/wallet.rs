@@ -56,8 +56,7 @@ impl Wallet {
             &self.recv_window,
             query,
             &self.api_secret,
-        )
-        .unwrap();
+        );
 
         let res = self
             .session
