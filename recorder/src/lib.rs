@@ -1,24 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use std::{f64, fmt};
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, RecvTimeoutError};
 use crossbeam_queue::ArrayQueue;
 use exchange::{OrderBook, OrderEvent, OrderExecution, OrderSide};
 use log::info;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct DataPoint {
     mid_price: f64,
     imbalance: f64,
-}
-impl Default for DataPoint {
-    fn default() -> Self {
-        DataPoint {
-            mid_price: f64::NAN,
-            imbalance: f64::NAN,
-        }
-    }
 }
 impl fmt::Display for DataPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -26,7 +19,7 @@ impl fmt::Display for DataPoint {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct PendingMarkout {
     pub order_link_id: u64,
     pub fill_ts: u64, // ms
@@ -42,34 +35,44 @@ impl fmt::Display for PendingMarkout {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{} {} {} {:.5} {:.5} {:.5} {} {} {}",
+            "{} {} {} {:.5} {:.5} {:.5}",
             self.order_link_id,
             self.fill_ts,
             self.side,
             self.limit_price,
             self.exec_price,
             self.exec_qty,
-            self.mid_1s.unwrap_or_default(),
-            self.mid_5s.unwrap_or_default(),
-            self.mid_10s.unwrap_or_default()
-        )
+        )?;
+
+        for markout in [self.mid_1s, self.mid_5s, self.mid_10s] {
+            match markout {
+                Some(data_point) => write!(f, " {data_point}")?,
+                None => write!(f, " NA")?,
+            }
+        }
+
+        Ok(())
     }
 }
 
 #[derive(Clone)]
 pub struct MarkoutEngine {
+    // TODO: Replace `ArrayQueue` with a latest-value data structure that notifies
+    // the consumer when a new order book is available, eliminating polling.
     from_book: Arc<ArrayQueue<OrderBook>>,
-    from_execution: Receiver<OrderEvent>,
+    order_events_rx: Receiver<OrderEvent>,
     trades: HashMap<String, PendingMarkout>, // key is execId
 }
 impl MarkoutEngine {
+    const ORDER_BOOK_POLL_INTERVAL: Duration = Duration::from_micros(500);
+
     pub fn new(
         from_book: Arc<ArrayQueue<OrderBook>>,
-        from_execution: Receiver<OrderEvent>,
+        order_events_rx: Receiver<OrderEvent>,
     ) -> Self {
         MarkoutEngine {
             from_book,
-            from_execution,
+            order_events_rx,
             trades: HashMap::new(),
         }
     }
@@ -80,16 +83,15 @@ impl MarkoutEngine {
                 self.update_prices(order_book);
                 self.log_and_remove();
             }
-            // TODO: remove select! because there is only one channel.
-            crossbeam_channel::select! {
-                recv(self.from_execution) -> msg => {
-                    if let Ok(new_execution) = msg {
-                        match new_execution {
-                            OrderEvent::ExecutionUpdate(order_execution) => self.update_trades(order_execution),
-                            OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed(_) => (),
-                        }
-                    }
-                }
+
+            match self
+                .order_events_rx
+                .recv_timeout(Self::ORDER_BOOK_POLL_INTERVAL)
+            {
+                Ok(OrderEvent::ExecutionUpdate(execution)) => self.update_trades(execution),
+                Ok(OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed(_)) => (),
+                Err(RecvTimeoutError::Timeout) => (),
+                Err(RecvTimeoutError::Disconnected) => return,
             }
         }
     }
@@ -149,5 +151,295 @@ impl MarkoutEngine {
         {
             info!("ExecId {id} | {t}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam_channel::unbounded;
+    use exchange::Level;
+
+    use super::*;
+
+    #[test]
+    fn data_point_display_use_log_placeholders_and_precision() {
+        let data_point = DataPoint {
+            mid_price: 100.123_456,
+            imbalance: 0.123_456,
+        };
+        assert_eq!(data_point.to_string(), "100.12346 0.12346");
+    }
+
+    #[test]
+    fn pending_markout_display_formats_trade_and_markout_data() {
+        let pending_markout = PendingMarkout {
+            order_link_id: 1000,
+            fill_ts: 10_000,
+            side: OrderSide::Buy,
+            limit_price: 100.0,
+            exec_price: 99.5,
+            exec_qty: 2.0,
+            mid_1s: Some(DataPoint {
+                mid_price: 100.25,
+                imbalance: 0.5,
+            }),
+            mid_5s: Some(DataPoint {
+                mid_price: 100.26,
+                imbalance: 0.6,
+            }),
+            mid_10s: Some(DataPoint {
+                mid_price: 100.27,
+                imbalance: 0.7,
+            }),
+        };
+
+        assert_eq!(
+            pending_markout.to_string(),
+            "1000 10000 Buy 100.00000 99.50000 2.00000 100.25000 0.50000 100.26000 0.60000 \
+             100.27000 0.70000"
+        );
+    }
+
+    #[test]
+    fn update_trades_stores_execution_as_pending_markout() {
+        let order_books = Arc::new(ArrayQueue::new(1));
+        let (_events_tx, events_rx) = unbounded();
+        let mut recorder = MarkoutEngine::new(order_books, events_rx);
+        let execution = OrderExecution {
+            order_link_id: 1000,
+            order_id: "exchange-order-id".to_string(),
+            order_price: 0.567,
+            order_side: OrderSide::Buy,
+            exec_id: "execution-id".to_string(),
+            exec_ts: 10_000,
+            exec_price: 0.566,
+            exec_fee: 0.01,
+            exec_qty: 25.0,
+            remaining_qty: 5.0,
+        };
+
+        recorder.update_trades(execution.clone());
+
+        let expected_pending_markout = PendingMarkout {
+            order_link_id: execution.order_link_id,
+            fill_ts: execution.exec_ts,
+            side: execution.order_side,
+            limit_price: execution.order_price,
+            exec_price: execution.exec_price,
+            exec_qty: execution.exec_qty,
+            mid_1s: None,
+            mid_5s: None,
+            mid_10s: None,
+        };
+        assert_eq!(
+            recorder.trades.get("execution-id").unwrap(),
+            &expected_pending_markout
+        );
+    }
+
+    #[test]
+    fn update_prices_records_each_markout_at_its_time_threshold() {
+        let order_books = Arc::new(ArrayQueue::new(1));
+        let (_events_tx, events_rx) = unbounded();
+        let mut recorder = MarkoutEngine::new(order_books, events_rx);
+        recorder.trades.insert(
+            "execution-id".to_string(),
+            PendingMarkout {
+                order_link_id: 1000,
+                fill_ts: 10_000,
+                side: OrderSide::Buy,
+                limit_price: 100.0,
+                exec_price: 100.0,
+                exec_qty: 1.0,
+                mid_1s: None,
+                mid_5s: None,
+                mid_10s: None,
+            },
+        );
+
+        recorder.update_prices(OrderBook {
+            bids: vec![Level {
+                price: 99.0,
+                size: 3.0,
+            }],
+            asks: vec![Level {
+                price: 101.0,
+                size: 1.0,
+            }],
+            cts: 10_999,
+            ..OrderBook::default()
+        });
+        assert_eq!(recorder.trades.get("execution-id").unwrap().mid_1s, None);
+
+        recorder.update_prices(OrderBook {
+            bids: vec![Level {
+                price: 99.0,
+                size: 3.0,
+            }],
+            asks: vec![Level {
+                price: 101.0,
+                size: 1.0,
+            }],
+            cts: 11_000,
+            ..OrderBook::default()
+        });
+        assert_eq!(
+            recorder.trades.get("execution-id").unwrap().mid_1s,
+            Some(DataPoint {
+                mid_price: 100.0,
+                imbalance: 0.5,
+            })
+        );
+
+        recorder.update_prices(OrderBook {
+            bids: vec![Level {
+                price: 101.0,
+                size: 1.0,
+            }],
+            asks: vec![Level {
+                price: 103.0,
+                size: 3.0,
+            }],
+            cts: 15_000,
+            ..OrderBook::default()
+        });
+        let pending_markout = recorder.trades.get("execution-id").unwrap();
+        assert_eq!(
+            pending_markout.mid_1s,
+            Some(DataPoint {
+                mid_price: 100.0,
+                imbalance: 0.5,
+            })
+        );
+        assert_eq!(
+            pending_markout.mid_5s,
+            Some(DataPoint {
+                mid_price: 102.0,
+                imbalance: -0.5,
+            })
+        );
+
+        recorder.update_prices(OrderBook {
+            bids: vec![Level {
+                price: 103.0,
+                size: 2.0,
+            }],
+            asks: vec![Level {
+                price: 105.0,
+                size: 2.0,
+            }],
+            cts: 20_000,
+            ..OrderBook::default()
+        });
+        assert_eq!(
+            recorder.trades.get("execution-id"),
+            Some(&PendingMarkout {
+                order_link_id: 1000,
+                fill_ts: 10_000,
+                side: OrderSide::Buy,
+                limit_price: 100.0,
+                exec_price: 100.0,
+                exec_qty: 1.0,
+                mid_1s: Some(DataPoint {
+                    mid_price: 100.0,
+                    imbalance: 0.5,
+                }),
+                mid_5s: Some(DataPoint {
+                    mid_price: 102.0,
+                    imbalance: -0.5,
+                }),
+                mid_10s: Some(DataPoint {
+                    mid_price: 104.0,
+                    imbalance: 0.0,
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn late_order_book_populates_all_elapsed_markouts() {
+        let order_books = Arc::new(ArrayQueue::new(1));
+        let (_events_tx, events_rx) = unbounded();
+        let mut recorder = MarkoutEngine::new(order_books, events_rx);
+        recorder.trades.insert(
+            "execution-id".to_string(),
+            PendingMarkout {
+                order_link_id: 1000,
+                fill_ts: 10_000,
+                side: OrderSide::Sell,
+                limit_price: 100.0,
+                exec_price: 100.0,
+                exec_qty: 1.0,
+                mid_1s: None,
+                mid_5s: None,
+                mid_10s: None,
+            },
+        );
+        let expected_data_point = DataPoint {
+            mid_price: 100.0,
+            imbalance: 0.5,
+        };
+
+        recorder.update_prices(OrderBook {
+            bids: vec![Level {
+                price: 99.0,
+                size: 3.0,
+            }],
+            asks: vec![Level {
+                price: 101.0,
+                size: 1.0,
+            }],
+            cts: 20_000,
+            ..OrderBook::default()
+        });
+
+        let pending_markout = recorder.trades.get("execution-id").unwrap();
+        assert_eq!(pending_markout.mid_1s, Some(expected_data_point));
+        assert_eq!(pending_markout.mid_5s, Some(expected_data_point));
+        assert_eq!(pending_markout.mid_10s, Some(expected_data_point));
+    }
+
+    #[test]
+    fn log_and_remove_removes_only_complete_markouts() {
+        let order_books = Arc::new(ArrayQueue::new(1));
+        let (_events_tx, events_rx) = unbounded();
+        let mut recorder = MarkoutEngine::new(order_books, events_rx);
+        let data_point = DataPoint {
+            mid_price: 100.0,
+            imbalance: 0.5,
+        };
+        recorder.trades.insert(
+            "complete-execution".to_string(),
+            PendingMarkout {
+                order_link_id: 1000,
+                fill_ts: 10_000,
+                side: OrderSide::Buy,
+                limit_price: 100.0,
+                exec_price: 100.0,
+                exec_qty: 1.0,
+                mid_1s: Some(data_point),
+                mid_5s: Some(data_point),
+                mid_10s: Some(data_point),
+            },
+        );
+        recorder.trades.insert(
+            "pending-execution".to_string(),
+            PendingMarkout {
+                order_link_id: 1001,
+                fill_ts: 11_000,
+                side: OrderSide::Sell,
+                limit_price: 101.0,
+                exec_price: 101.0,
+                exec_qty: 2.0,
+                mid_1s: Some(data_point),
+                mid_5s: Some(data_point),
+                mid_10s: None,
+            },
+        );
+
+        recorder.log_and_remove();
+
+        assert!(!recorder.trades.contains_key("complete-execution"));
+        assert!(recorder.trades.contains_key("pending-execution"));
     }
 }
