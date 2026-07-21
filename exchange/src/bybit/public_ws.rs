@@ -121,3 +121,166 @@ impl PublicWebSocket {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bybit::ws::response::OrderbookItem;
+
+    use super::*;
+
+    fn create_order_book(asks: &[(f64, f64)], bids: &[(f64, f64)], ts: u64, cts: u64) -> OrderBook {
+        OrderBook {
+            asks: asks
+                .iter()
+                .map(|&(price, size)| Level { price, size })
+                .collect(),
+            bids: bids
+                .iter()
+                .map(|&(price, size)| Level { price, size })
+                .collect(),
+            ts,
+            cts,
+        }
+    }
+
+    #[test]
+    fn process_delta_updates_existing_bid_and_ask_sizes() {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        public_websocket.order_book = create_order_book(
+            &[(101.0, 2.0), (102.0, 3.0)],
+            &[(99.0, 4.0), (98.0, 5.0)],
+            1000,
+            1001,
+        );
+        let delta = Orderbook {
+            s: "ADAUSDT",
+            b: vec![OrderbookItem("99", "8")],
+            a: vec![OrderbookItem("101", "7")],
+            u: 2,
+            seq: Some(2),
+        };
+
+        public_websocket.process_delta(delta);
+
+        assert_eq!(
+            public_websocket.order_book,
+            create_order_book(
+                &[(101.0, 7.0), (102.0, 3.0)],
+                &[(99.0, 8.0), (98.0, 5.0)],
+                1000,
+                1001,
+            )
+        );
+    }
+
+    #[test]
+    fn process_delta_inserts_and_sorts_new_levels() {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        public_websocket.order_book = create_order_book(&[(102.0, 2.0)], &[(98.0, 2.0)], 0, 0);
+        let delta = Orderbook {
+            s: "ADAUSDT",
+            b: vec![OrderbookItem("97", "3"), OrderbookItem("99", "1")],
+            a: vec![OrderbookItem("103", "3"), OrderbookItem("101", "1")],
+            u: 2,
+            seq: Some(2),
+        };
+
+        public_websocket.process_delta(delta);
+
+        assert_eq!(
+            public_websocket.order_book,
+            create_order_book(
+                &[(101.0, 1.0), (102.0, 2.0), (103.0, 3.0)],
+                &[(99.0, 1.0), (98.0, 2.0), (97.0, 3.0)],
+                0,
+                0,
+            )
+        );
+    }
+
+    #[test]
+    fn process_delta_removes_zero_sized_levels() {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        public_websocket.order_book = create_order_book(
+            &[(101.0, 1.0), (102.0, 2.0)],
+            &[(99.0, 1.0), (98.0, 2.0)],
+            0,
+            0,
+        );
+        let delta = Orderbook {
+            s: "ADAUSDT",
+            b: vec![OrderbookItem("99", "0"), OrderbookItem("97", "0")],
+            a: vec![OrderbookItem("101", "0"), OrderbookItem("103", "0")],
+            u: 2,
+            seq: Some(2),
+        };
+
+        public_websocket.process_delta(delta);
+
+        assert_eq!(
+            public_websocket.order_book,
+            create_order_book(&[(102.0, 2.0)], &[(98.0, 2.0)], 0, 0)
+        );
+    }
+
+    #[test]
+    fn process_delta_applies_mixed_unordered_changes() {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        public_websocket.order_book = create_order_book(
+            &[(101.0, 1.0), (102.0, 2.0), (104.0, 4.0)],
+            &[(99.0, 1.0), (98.0, 2.0), (96.0, 4.0)],
+            1000,
+            1001,
+        );
+        let delta = Orderbook {
+            s: "ADAUSDT",
+            b: vec![
+                OrderbookItem("97", "7"),
+                OrderbookItem("96", "0"),
+                OrderbookItem("99", "10"),
+            ],
+            a: vec![
+                OrderbookItem("103", "3"),
+                OrderbookItem("104", "0"),
+                OrderbookItem("102", "20"),
+            ],
+            u: 2,
+            seq: Some(2),
+        };
+
+        public_websocket.process_delta(delta);
+
+        assert_eq!(
+            public_websocket.order_book,
+            create_order_book(
+                &[(101.0, 1.0), (102.0, 20.0), (103.0, 3.0)],
+                &[(99.0, 10.0), (98.0, 2.0), (97.0, 7.0)],
+                1000,
+                1001,
+            )
+        );
+    }
+
+    #[test]
+    fn process_delta_with_no_levels_preserves_order_book() {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let initial_order_book = create_order_book(&[(101.0, 1.0)], &[(99.0, 1.0)], 1000, 1001);
+        public_websocket.order_book = initial_order_book.clone();
+        let delta = Orderbook {
+            s: "ADAUSDT",
+            b: Vec::new(),
+            a: Vec::new(),
+            u: 2,
+            seq: Some(2),
+        };
+
+        public_websocket.process_delta(delta);
+
+        assert_eq!(public_websocket.order_book, initial_order_book);
+    }
+}
