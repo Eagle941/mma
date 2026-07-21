@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bybit::WebSocketApiClient;
-use bybit::ws::response::{Orderbook, SpotPublicResponse};
+use bybit::ws::response::{BasePublicResponse, Orderbook, SpotPublicResponse};
 use bybit::ws::spot::{OrderbookDepth, SpotWebsocketApiClient};
 use crossbeam_queue::ArrayQueue;
 use log::warn;
@@ -74,45 +74,47 @@ impl PublicWebSocket {
             .sort_by(|a, b| b.price.total_cmp(&a.price));
     }
 
-    // TODO: extract callback in separate function for testing.
+    fn process_orderbook_response(
+        &mut self,
+        response: BasePublicResponse<'_, Orderbook<'_>>,
+        order_book_publisher: &mut Input<OrderBook>,
+    ) {
+        // TODO: should it be response.cts? It's not available at the moment.
+        self.order_book.cts = response.ts;
+        self.order_book.ts = response.ts;
+        // If you receive a new snapshot message, you will have to reset your local
+        // orderbook.
+        if response.type_ == "snapshot" || response.data.u == 1 {
+            self.order_book.asks = response.data.a.iter().map(|item| item.into()).collect();
+            self.order_book.bids = response.data.b.iter().map(|item| item.into()).collect();
+        } else {
+            // Receive a delta message, update the orderbook.
+            // Note that asks and bids of a delta message **do not guarantee** to be
+            // ordered.
+            self.process_delta(response.data);
+        }
+
+        // TODO: remove the cloning forced by the triple buffer consistency
+        *order_book_publisher.input_buffer_mut() = self.order_book.clone();
+        order_book_publisher.publish();
+
+        self.to_recorder.force_push(self.order_book.clone());
+    }
+
     pub fn subscribe(&mut self, order_book_publisher: &mut Input<OrderBook>, symbol: &str) {
         let mut client = self.get_ws_client();
         client.subscribe_orderbook(symbol, OrderbookDepth::Level50);
 
-        let callback = |res: SpotPublicResponse| {
-            match res {
-                SpotPublicResponse::Orderbook(res) => {
-                    // TODO: should it be res.cts? It's not available at the moment.
-                    self.order_book.cts = res.ts;
-                    self.order_book.ts = res.ts;
-                    // If you receive a new snapshot message, you will have to reset your local
-                    // orderbook.
-                    if res.type_ == "snapshot" || res.data.u == 1 {
-                        self.order_book.asks = res.data.a.iter().map(|item| item.into()).collect();
-                        self.order_book.bids = res.data.b.iter().map(|item| item.into()).collect();
-                        return;
-                    }
-
-                    // Receive a delta message, update the orderbook.
-                    // Note that asks and bids of a delta message **do not guarantee** to be
-                    // ordered.
-                    self.process_delta(res.data);
-
-                    // TODO: remove the cloning forced by the triple buffer consistency
-                    let order_book = order_book_publisher.input_buffer_mut();
-                    order_book.asks = self.order_book.asks.clone();
-                    order_book.bids = self.order_book.bids.clone();
-                    order_book_publisher.publish();
-
-                    self.to_recorder.force_push(self.order_book.clone());
-                }
-                SpotPublicResponse::Op(res) => {
-                    if !res.success {
-                        warn!("{res:?}")
-                    }
-                }
-                x => warn!("SpotPublicResponse::{x:?} not implemented"),
+        let callback = |res: SpotPublicResponse| match res {
+            SpotPublicResponse::Orderbook(response) => {
+                self.process_orderbook_response(response, order_book_publisher);
             }
+            SpotPublicResponse::Op(res) => {
+                if !res.success {
+                    warn!("{res:?}")
+                }
+            }
+            x => warn!("SpotPublicResponse::{x:?} not implemented"),
         };
 
         match client.run(callback) {
@@ -125,6 +127,8 @@ impl PublicWebSocket {
 #[cfg(test)]
 mod tests {
     use bybit::ws::response::OrderbookItem;
+    use rstest::rstest;
+    use triple_buffer::TripleBuffer;
 
     use super::*;
 
@@ -141,6 +145,82 @@ mod tests {
             ts,
             cts,
         }
+    }
+
+    #[rstest]
+    #[case("snapshot", 2)]
+    #[case("snapshot", 1)]
+    #[case("delta", 1)]
+    fn process_orderbook_response_replaces_and_publishes_snapshot(
+        #[case] response_type: &str,
+        #[case] update_id: u64,
+    ) {
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        let mut public_websocket = PublicWebSocket::new(Arc::clone(&recorder_order_books));
+        public_websocket.order_book =
+            create_order_book(&[(110.0, 1.0)], &[(90.0, 1.0)], 1000, 1000);
+        let stale_strategy_order_book =
+            create_order_book(&[(120.0, 1.0)], &[(80.0, 1.0)], 500, 500);
+        let (mut order_book_publisher, mut strategy_order_books) =
+            TripleBuffer::new(&stale_strategy_order_book).split();
+        let response = BasePublicResponse {
+            topic: "orderbook.50.ADAUSDT",
+            type_: response_type,
+            ts: 2000,
+            data: Orderbook {
+                s: "ADAUSDT",
+                b: vec![OrderbookItem("99", "2"), OrderbookItem("98", "3")],
+                a: vec![OrderbookItem("101", "2"), OrderbookItem("102", "3")],
+                u: update_id,
+                seq: Some(2),
+            },
+        };
+        public_websocket.process_orderbook_response(response, &mut order_book_publisher);
+
+        let expected_order_book = create_order_book(
+            &[(101.0, 2.0), (102.0, 3.0)],
+            &[(99.0, 2.0), (98.0, 3.0)],
+            2000,
+            2000,
+        );
+        assert_eq!(public_websocket.order_book, expected_order_book);
+        assert_eq!(strategy_order_books.read(), &expected_order_book);
+        assert_eq!(recorder_order_books.pop(), Some(expected_order_book));
+        assert!(recorder_order_books.is_empty());
+    }
+
+    #[test]
+    fn process_orderbook_response_applies_delta_and_replaces_stale_publications() {
+        let initial_order_book = create_order_book(&[(120.0, 1.0)], &[(80.0, 1.0)], 500, 500);
+        let recorder_order_books = Arc::new(ArrayQueue::new(1));
+        recorder_order_books
+            .push(initial_order_book.clone())
+            .expect("test recorder queue should have capacity");
+        let (mut order_book_publisher, mut strategy_order_books) =
+            TripleBuffer::new(&initial_order_book).split();
+        let mut public_websocket = PublicWebSocket::new(Arc::clone(&recorder_order_books));
+        public_websocket.order_book =
+            create_order_book(&[(101.0, 1.0)], &[(99.0, 1.0)], 1000, 1000);
+        let response = BasePublicResponse {
+            topic: "orderbook.50.ADAUSDT",
+            type_: "delta",
+            ts: 2000,
+            data: Orderbook {
+                s: "ADAUSDT",
+                b: vec![OrderbookItem("99", "0"), OrderbookItem("98", "4")],
+                a: vec![OrderbookItem("101", "2"), OrderbookItem("102", "3")],
+                u: 2,
+                seq: Some(2),
+            },
+        };
+        public_websocket.process_orderbook_response(response, &mut order_book_publisher);
+
+        let expected_order_book =
+            create_order_book(&[(101.0, 2.0), (102.0, 3.0)], &[(98.0, 4.0)], 2000, 2000);
+        assert_eq!(public_websocket.order_book, expected_order_book);
+        assert_eq!(strategy_order_books.read(), &expected_order_book);
+        assert_eq!(recorder_order_books.pop(), Some(expected_order_book));
+        assert!(recorder_order_books.is_empty());
     }
 
     #[test]
