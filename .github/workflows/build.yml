@@ -96,4 +96,7 @@ jobs:
                       ~/.cargo/git/db/
                       target/
             - name: Cargo doc
+              env:
+                  # icu_properties doesn't handle the flag cpu-native
+                  RUSTFLAGS: ""
               run: cargo doc --no-deps --document-private-items --locked
