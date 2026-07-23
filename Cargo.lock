@@ -320,9 +320,9 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "configuration",
  "crossbeam-channel",
  "crossbeam-queue",
- "dotenvy",
  "env_logger",
  "exchange",
  "exitcode",
@@ -357,6 +357,16 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "configuration"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "dotenvy",
+ "env_logger",
+ "rstest",
 ]
 
 [[package]]
@@ -591,6 +601,7 @@ version = "0.0.1"
 dependencies = [
  "attohttpc",
  "chrono",
+ "configuration",
  "criterion",
  "crossbeam-channel",
  "crossbeam-queue",
@@ -2177,6 +2188,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "strategy"
 version = "0.0.1"
 dependencies = [
+ "configuration",
  "crossbeam-channel",
  "crossbeam-queue",
  "exchange",

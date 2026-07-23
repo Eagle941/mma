@@ -1,6 +1,7 @@
+use std::f64;
 use std::str::FromStr;
-use std::{env, f64};
 
+use configuration::AppConfigProvider;
 use serde_json::Value;
 
 use crate::bybit::utils::get_base_url;
@@ -19,11 +20,11 @@ pub struct Info {
     pub decimal_places: usize,
 }
 impl Info {
-    pub fn new(symbol: String) -> Self {
-        let base_url = get_base_url();
+    pub fn new(config: &dyn AppConfigProvider) -> Self {
+        let base_url = get_base_url(config.testnet());
         let mut info = Info {
             base_url,
-            symbol,
+            symbol: config.symbol().to_string(),
             base_coin: String::default(),
             quote_coin: String::default(),
             base_precision: f64::NAN,
@@ -34,11 +35,6 @@ impl Info {
         info.get_info();
         log::info!("{info:#?}");
         info
-    }
-
-    pub fn factory() -> Self {
-        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        Self::new(symbol)
     }
 
     fn get_info(&mut self) {
@@ -115,21 +111,16 @@ pub struct Trades {
     pub last_price: f64,
 }
 impl Trades {
-    pub fn new(symbol: String) -> Self {
-        let base_url = get_base_url();
+    pub fn new(config: &dyn AppConfigProvider) -> Self {
+        let base_url = get_base_url(config.testnet());
         let mut trades = Trades {
             base_url,
-            symbol,
+            symbol: config.symbol().to_string(),
             last_price: 0.0,
         };
         trades.get_trades();
         log::info!("{trades:#?}");
         trades
-    }
-
-    pub fn factory() -> Self {
-        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-        Self::new(symbol)
     }
 
     fn get_trades(&mut self) {

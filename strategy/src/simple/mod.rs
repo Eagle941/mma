@@ -1,7 +1,6 @@
-use std::env;
-use std::str::FromStr;
 use std::sync::Arc;
 
+use configuration::AppConfigProvider;
 use crossbeam_channel::Sender;
 use crossbeam_queue::ArrayQueue;
 use exchange::bybit::market::Info;
@@ -20,28 +19,17 @@ impl SimpleStrategy {
     pub fn new(
         to_oms: Sender<OrderBuilder>,
         from_oms: Arc<ArrayQueue<f64>>,
-        size: f64,
-        symbol: &str,
+        config: &dyn AppConfigProvider,
+        instrument_info: Info,
     ) -> SimpleStrategy {
         let inventory = from_oms.pop().unwrap_or(0.0);
         SimpleStrategy {
             to_oms,
             from_oms,
-            size,
-            instrument_info: Info::new(symbol.to_string()),
+            size: config.order_size(),
+            instrument_info,
             inventory,
         }
-    }
-
-    pub fn factory(to_oms: Sender<OrderBuilder>, from_oms: Arc<ArrayQueue<f64>>) -> SimpleStrategy {
-        let symbol = env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-
-        // TODO: calculate minimum order size from the `Info` struct.
-        let size =
-            env::var("MMA_ORDER_SIZE").expect("MMA_ORDER_SIZE env variable must not be blank.");
-        let size = f64::from_str(&size).expect("MMA_ORDER_SIZE is not a valid number.");
-
-        SimpleStrategy::new(to_oms, from_oms, size, symbol.as_str())
     }
 
     pub fn execute(&mut self, order_book: &OrderBook) {

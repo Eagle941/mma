@@ -3,11 +3,11 @@ use std::sync::Arc;
 use bybit::WebSocketApiClient;
 use bybit::ws::response::{BasePublicResponse, Orderbook, SpotPublicResponse};
 use bybit::ws::spot::{OrderbookDepth, SpotWebsocketApiClient};
+use configuration::AppConfigProvider;
 use crossbeam_queue::ArrayQueue;
 use log::warn;
 use triple_buffer::Input;
 
-use crate::bybit::utils::is_testnet;
 use crate::{Level, OrderBook};
 
 // TODO: set from the configuration package.
@@ -15,19 +15,21 @@ pub const ORDER_BOOK_LEVELS: usize = 50;
 
 #[derive(Debug)]
 pub struct PublicWebSocket {
+    testnet: bool,
     to_recorder: Arc<ArrayQueue<OrderBook>>,
     order_book: OrderBook,
 }
 impl PublicWebSocket {
-    pub fn new(to_recorder: Arc<ArrayQueue<OrderBook>>) -> Self {
+    pub fn new(to_recorder: Arc<ArrayQueue<OrderBook>>, config: &dyn AppConfigProvider) -> Self {
         PublicWebSocket {
+            testnet: config.testnet(),
             to_recorder,
             order_book: OrderBook::default(),
         }
     }
 
     fn get_ws_client(&self) -> SpotWebsocketApiClient {
-        if is_testnet() {
+        if self.testnet {
             return WebSocketApiClient::spot().testnet().build();
         }
         WebSocketApiClient::spot().build()
@@ -127,10 +129,52 @@ impl PublicWebSocket {
 #[cfg(test)]
 mod tests {
     use bybit::ws::response::OrderbookItem;
+    use configuration::WriteStyle;
     use rstest::rstest;
     use triple_buffer::TripleBuffer;
 
     use super::*;
+
+    struct TestConfig;
+    impl AppConfigProvider for TestConfig {
+        fn symbol(&self) -> &str {
+            "ADAUSDT"
+        }
+
+        fn coin(&self) -> &str {
+            "ADA"
+        }
+
+        fn order_size(&self) -> f64 {
+            25.0
+        }
+
+        fn testnet(&self) -> bool {
+            false
+        }
+
+        fn api_key(&self) -> &str {
+            "api-key"
+        }
+
+        fn api_secret(&self) -> &str {
+            "api-secret"
+        }
+
+        fn log_filter(&self) -> &str {
+            "warn"
+        }
+
+        fn log_style(&self) -> WriteStyle {
+            WriteStyle::Never
+        }
+    }
+
+    fn create_public_websocket(
+        recorder_order_books: Arc<ArrayQueue<OrderBook>>,
+    ) -> PublicWebSocket {
+        PublicWebSocket::new(recorder_order_books, &TestConfig)
+    }
 
     fn create_order_book(asks: &[(f64, f64)], bids: &[(f64, f64)], ts: u64, cts: u64) -> OrderBook {
         OrderBook {
@@ -156,7 +200,7 @@ mod tests {
         #[case] update_id: u64,
     ) {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(Arc::clone(&recorder_order_books));
+        let mut public_websocket = create_public_websocket(Arc::clone(&recorder_order_books));
         public_websocket.order_book =
             create_order_book(&[(110.0, 1.0)], &[(90.0, 1.0)], 1000, 1000);
         let stale_strategy_order_book =
@@ -198,7 +242,7 @@ mod tests {
             .expect("test recorder queue should have capacity");
         let (mut order_book_publisher, mut strategy_order_books) =
             TripleBuffer::new(&initial_order_book).split();
-        let mut public_websocket = PublicWebSocket::new(Arc::clone(&recorder_order_books));
+        let mut public_websocket = create_public_websocket(Arc::clone(&recorder_order_books));
         public_websocket.order_book =
             create_order_book(&[(101.0, 1.0)], &[(99.0, 1.0)], 1000, 1000);
         let response = BasePublicResponse {
@@ -226,7 +270,7 @@ mod tests {
     #[test]
     fn process_delta_updates_existing_bid_and_ask_sizes() {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let mut public_websocket = create_public_websocket(recorder_order_books);
         public_websocket.order_book = create_order_book(
             &[(101.0, 2.0), (102.0, 3.0)],
             &[(99.0, 4.0), (98.0, 5.0)],
@@ -257,7 +301,7 @@ mod tests {
     #[test]
     fn process_delta_inserts_and_sorts_new_levels() {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let mut public_websocket = create_public_websocket(recorder_order_books);
         public_websocket.order_book = create_order_book(&[(102.0, 2.0)], &[(98.0, 2.0)], 0, 0);
         let delta = Orderbook {
             s: "ADAUSDT",
@@ -283,7 +327,7 @@ mod tests {
     #[test]
     fn process_delta_removes_zero_sized_levels() {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let mut public_websocket = create_public_websocket(recorder_order_books);
         public_websocket.order_book = create_order_book(
             &[(101.0, 1.0), (102.0, 2.0)],
             &[(99.0, 1.0), (98.0, 2.0)],
@@ -309,7 +353,7 @@ mod tests {
     #[test]
     fn process_delta_applies_mixed_unordered_changes() {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let mut public_websocket = create_public_websocket(recorder_order_books);
         public_websocket.order_book = create_order_book(
             &[(101.0, 1.0), (102.0, 2.0), (104.0, 4.0)],
             &[(99.0, 1.0), (98.0, 2.0), (96.0, 4.0)],
@@ -348,7 +392,7 @@ mod tests {
     #[test]
     fn process_delta_with_no_levels_preserves_order_book() {
         let recorder_order_books = Arc::new(ArrayQueue::new(1));
-        let mut public_websocket = PublicWebSocket::new(recorder_order_books);
+        let mut public_websocket = create_public_websocket(recorder_order_books);
         let initial_order_book = create_order_book(&[(101.0, 1.0)], &[(99.0, 1.0)], 1000, 1001);
         public_websocket.order_book = initial_order_book.clone();
         let delta = Orderbook {

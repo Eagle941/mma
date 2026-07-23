@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::env;
 use std::str::FromStr;
 
 use attohttpc::Session;
 use chrono::Utc;
+use configuration::AppConfigProvider;
 use serde_json::Value;
 
 use crate::bybit::utils::{generate_signature, get_base_url};
@@ -20,11 +20,10 @@ pub struct Wallet {
 impl Wallet {
     // NOTE: The default implementation doesn't have any sense for this struct.
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let base_url = get_base_url();
-        let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
-        let api_secret =
-            env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");
+    pub fn new(config: &dyn AppConfigProvider) -> Self {
+        let base_url = get_base_url(config.testnet());
+        let api_key = config.api_key().to_string();
+        let api_secret = config.api_secret().to_string();
         // how long an HTTP request is valid. It is also used to prevent replay
         // attacks.
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may

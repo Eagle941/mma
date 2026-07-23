@@ -1,19 +1,14 @@
-use std::env;
 use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use configuration::{ApiCredentials, AppConfig, WriteStyle};
 use criterion::{Criterion, criterion_group, criterion_main};
 use crossbeam_channel::unbounded;
 use exchange::bybit::order::OrderHandler;
 use exchange::{OrderBuilder, OrderGateway, OrderSide, OrderType};
 
 fn bench_order_handler(c: &mut Criterion) {
-    unsafe {
-        env::set_var("API_KEY", "dummy_benchmark_key");
-        env::set_var("API_SECRET", "dummy_benchmark_secret");
-    }
-
     let start_time_micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("System clock went backwards!")
@@ -21,7 +16,17 @@ fn bench_order_handler(c: &mut Criterion) {
     let id_generator = AtomicU64::new(start_time_micros);
 
     let (to_oms, _) = unbounded();
-    let handler = OrderHandler::new(to_oms);
+    let config = AppConfig::new(
+        "ADAUSDT",
+        "ADA",
+        500.0,
+        false,
+        ApiCredentials::new("dummy_benchmark_key", "dummy_benchmark_secret"),
+        "warn",
+        WriteStyle::Never,
+    )
+    .expect("benchmark configuration should be valid");
+    let handler = OrderHandler::new(to_oms, &config);
     let submit_builder = OrderBuilder {
         symbol: "ADAUSDT".to_string(),
         side: OrderSide::Buy,

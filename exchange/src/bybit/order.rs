@@ -1,7 +1,7 @@
-use std::env;
 use std::str::FromStr;
 
 use chrono::Utc;
+use configuration::AppConfigProvider;
 use crossbeam_channel::Sender;
 use log::{error, info, warn};
 use log_execution_time::log_execution_time;
@@ -51,13 +51,11 @@ pub struct OrderHandler {
     to_oms: Sender<OrderEvent>,
 }
 impl OrderHandler {
-    // Temporary while secrets handling hasn't been implemented
     #[allow(clippy::new_without_default)]
-    pub fn new(to_oms: Sender<OrderEvent>) -> Self {
-        let base_url = get_base_url();
-        let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
-        let api_secret =
-            env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");
+    pub fn new(to_oms: Sender<OrderEvent>, config: &dyn AppConfigProvider) -> Self {
+        let base_url = get_base_url(config.testnet());
+        let api_key = config.api_key().to_string();
+        let api_secret = config.api_secret().to_string();
         // how long an HTTP request is valid. It is also used to prevent replay
         // attacks.
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may

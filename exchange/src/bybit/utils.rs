@@ -1,5 +1,3 @@
-use std::env;
-
 use hex;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -26,15 +24,8 @@ pub fn generate_signature(
     hex::encode(code_bytes)
 }
 
-pub fn is_testnet() -> bool {
-    env::var("MMA_TESTNET")
-        .expect("MMA_TESTNET env variable must not be blank.")
-        .parse()
-        .unwrap()
-}
-
-pub fn get_base_url() -> String {
-    if is_testnet() {
+pub fn get_base_url(testnet: bool) -> String {
+    if testnet {
         return "https://api-testnet.bybit.com".to_string();
     }
     "https://api.bybit.com".to_string()
@@ -45,6 +36,13 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    #[rstest]
+    #[case(false, "https://api.bybit.com")]
+    #[case(true, "https://api-testnet.bybit.com")]
+    fn get_base_url_selects_environment(#[case] testnet: bool, #[case] expected: &str) {
+        assert_eq!(get_base_url(testnet), expected);
+    }
 
     #[rstest]
     #[case(
