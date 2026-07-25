@@ -83,7 +83,27 @@ impl OrderHandler {
         }
     }
 
+    fn serialize_quantity(qty: f64) -> String {
+        assert!(
+            qty.is_finite() && qty > 0.0,
+            "Order quantity must be finite and greater than zero."
+        );
+        qty.to_string()
+    }
+
+    fn serialize_price(price: &str) -> String {
+        let price_value =
+            f64::from_str(price).expect("Order price must be a finite number greater than zero.");
+        assert!(
+            price_value.is_finite() && price_value > 0.0,
+            "Order price must be a finite number greater than zero."
+        );
+        price.to_string()
+    }
+
     fn submit_order_body(order_builder: &OrderBuilder, order_link_id: u64) -> Value {
+        let qty = Self::serialize_quantity(order_builder.qty);
+        let price = Self::serialize_price(&order_builder.price);
         json!({
             "orderLinkId": order_link_id.to_string(),
             "category": "spot",
@@ -91,8 +111,8 @@ impl OrderHandler {
             "symbol": order_builder.symbol,
             "side": order_builder.side,
             "orderType": order_builder.order_type,
-            "qty": order_builder.qty.to_string(),
-            "price": order_builder.price,
+            "qty": qty,
+            "price": price,
             "timeInForce": "PostOnly",
             "smpType": "CancelBoth",
             "marketUnit": "baseCoin"
@@ -108,10 +128,10 @@ impl OrderHandler {
             "orderLinkId": order_builder.order_link_id.to_string(),
         });
         if order_builder.new_qty {
-            body["qty"] = json!(order_builder.qty);
+            body["qty"] = json!(Self::serialize_quantity(order_builder.qty));
         }
         if order_builder.new_price {
-            body["price"] = json!(order_builder.price);
+            body["price"] = json!(Self::serialize_price(&order_builder.price));
         }
         body
     }
@@ -529,14 +549,37 @@ mod tests {
     }
 
     #[rstest]
+    #[case(0.0)]
+    #[case(-1.0)]
+    #[case(f64::NAN)]
+    #[case(f64::INFINITY)]
+    #[case(f64::NEG_INFINITY)]
+    #[should_panic(expected = "Order quantity must be finite and greater than zero.")]
+    fn quantity_serialization_rejects_invalid_value(#[case] qty: f64) {
+        OrderHandler::serialize_quantity(qty);
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("not-a-number")]
+    #[case("0")]
+    #[case("-0.1")]
+    #[case("NaN")]
+    #[case("inf")]
+    #[should_panic(expected = "Order price must be a finite number greater than zero.")]
+    fn price_serialization_rejects_invalid_value(#[case] price: &str) {
+        OrderHandler::serialize_price(price);
+    }
+
+    #[rstest]
     #[case(false, false, None, None)]
-    #[case(true, false, Some(25.0), None)]
+    #[case(true, false, Some("25"), None)]
     #[case(false, true, None, Some("0.567"))]
-    #[case(true, true, Some(25.0), Some("0.567"))]
+    #[case(true, true, Some("25"), Some("0.567"))]
     fn amend_order_body_contains_only_changed_values(
         #[case] new_qty: bool,
         #[case] new_price: bool,
-        #[case] expected_qty: Option<f64>,
+        #[case] expected_qty: Option<&str>,
         #[case] expected_price: Option<&str>,
     ) {
         let order_builder = create_amended_order_builder(new_qty, new_price);
