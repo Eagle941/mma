@@ -13,4 +13,4 @@ crossbeam-channel.workspace = true
 crossbeam-queue.workspace = true
 exchange = { path = "../exchange" }
 log.workspace = true
-triple_buffer = "8.1.1"
+triple_buffer.workspace = true
