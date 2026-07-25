@@ -1,0 +1,42 @@
+name: Dependency audit
+
+on:
+    pull_request:
+        paths:
+            - "**/Cargo.toml"
+            - "Cargo.lock"
+            - ".github/workflows/audit.yml"
+    push:
+        branches: [main]
+        paths:
+            - "**/Cargo.toml"
+            - "Cargo.lock"
+            - ".github/workflows/audit.yml"
+    schedule:
+        # Run every Monday at 03:00 UTC.
+        - cron: "0 3 * * 1"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    audit:
+        name: RustSec audit
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+
+            - name: Install cargo-audit
+              uses: taiki-e/install-action@cargo-audit
+
+            - name: Audit dependencies
+              # TODO: Remove these exceptions after upgrading or replacing rust-bybit 0.2.0.
+              # rust-bybit pins ring to ^0.16 and tungstenite to ^0.18, which prevents
+              # Cargo from resolving the versions containing the security fixes.
+              run: |
+                  cargo audit \
+                      --ignore RUSTSEC-2025-0009 \
+                      --ignore RUSTSEC-2023-0065
