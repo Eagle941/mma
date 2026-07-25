@@ -1,110 +1,81 @@
-use std::f64;
 use std::str::FromStr;
 
 use configuration::AppConfigProvider;
 use serde_json::Value;
 
+use crate::InstrumentInfo;
 use crate::bybit::utils::get_base_url;
 
-// TODO: struct `Info` may need to become a shared struct common across
-// Exchanges.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Info {
-    base_url: String,
-    pub symbol: String,
-    pub base_coin: String,
-    pub quote_coin: String,
-    pub base_precision: f64,
-    pub quote_precision: f64,
-    pub tick_size: f64,
-    pub decimal_places: usize,
-}
-impl Info {
-    pub fn new(config: &dyn AppConfigProvider) -> Self {
-        let base_url = get_base_url(config.testnet());
-        let mut info = Info {
-            base_url,
-            symbol: config.symbol().to_string(),
-            base_coin: String::default(),
-            quote_coin: String::default(),
-            base_precision: f64::NAN,
-            quote_precision: f64::NAN,
-            tick_size: f64::NAN,
-            decimal_places: 0,
-        };
-        info.get_info();
-        log::info!("{info:#?}");
-        info
-    }
-
-    fn get_info(&mut self) {
-        let url = format!(
-            "{}/v5/market/instruments-info?category=spot&symbol={}",
-            self.base_url, self.symbol
-        );
-        let res = attohttpc::get(url).send();
-        match res {
-            Ok(x) => {
-                if !x.is_success() {
-                    panic!(
-                        "Failed instruments-info response for {}. Status code {}",
-                        self.symbol,
-                        x.status()
-                    );
-                } else {
-                    let content = x.text().unwrap();
-                    let content: Value = serde_json::from_str(&content).unwrap();
-                    self.process_response(&content);
-                }
-            }
-            Err(x) => {
+pub fn get_instrument_info(config: &dyn AppConfigProvider) -> InstrumentInfo {
+    let symbol = config.symbol();
+    let url = format!(
+        "{}/v5/market/instruments-info?category=spot&symbol={}",
+        get_base_url(config.testnet()),
+        symbol
+    );
+    let res = attohttpc::get(url).send();
+    match res {
+        Ok(response) => {
+            if !response.is_success() {
                 panic!(
-                    "Failed to receive instrument info for {}. Error {x}.",
-                    self.symbol
+                    "Failed instruments-info response for {}. Status code {}",
+                    symbol,
+                    response.status()
+                );
+            }
+
+            let content = response.text().unwrap();
+            let content: Value = serde_json::from_str(&content).unwrap();
+            let info = process_instrument_info_response(symbol, &content);
+            log::info!("{info:#?}");
+            info
+        }
+        Err(error) => {
+            panic!("Failed to receive instrument info for {symbol}. Error {error}.");
+        }
+    }
+}
+
+fn process_instrument_info_response(symbol: &str, content: &Value) -> InstrumentInfo {
+    // NOTE: despite using the parameter `symbol` in the request, Bybit returns all
+    // the symbols.
+    if content["retCode"].as_i64().unwrap() == 0 {
+        for instrument in content["result"]["list"].as_array().unwrap() {
+            if instrument["symbol"] == symbol {
+                let base_coin = instrument["baseCoin"].as_str().unwrap().to_string();
+                let quote_coin = instrument["quoteCoin"].as_str().unwrap().to_string();
+                let base_precision = f64::from_str(
+                    instrument["lotSizeFilter"]["basePrecision"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .unwrap();
+                let quote_precision = f64::from_str(
+                    instrument["lotSizeFilter"]["quotePrecision"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .unwrap();
+                let tick_size = instrument["priceFilter"]["tickSize"].as_str().unwrap();
+                let decimal_places = tick_size.len() - tick_size.find('.').unwrap_or_default() - 1;
+                return InstrumentInfo::new(
+                    symbol.to_string(),
+                    base_coin,
+                    quote_coin,
+                    base_precision,
+                    quote_precision,
+                    f64::from_str(tick_size).unwrap(),
+                    decimal_places,
                 );
             }
         }
+        panic!("Symbol {symbol} not found in instruments-info response.");
     }
 
-    fn process_response(&mut self, content: &Value) {
-        // NOTE: despite using the parameter `symbol` in the request, Bybit returns all
-        // the symbols.
-        if content["retCode"].as_i64().unwrap() == 0 {
-            for instrument in content["result"]["list"].as_array().unwrap() {
-                if instrument["symbol"] == self.symbol {
-                    self.base_coin = instrument["baseCoin"].as_str().unwrap().to_string();
-                    self.quote_coin = instrument["quoteCoin"].as_str().unwrap().to_string();
-                    self.base_precision = f64::from_str(
-                        instrument["lotSizeFilter"]["basePrecision"]
-                            .as_str()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    self.quote_precision = f64::from_str(
-                        instrument["lotSizeFilter"]["quotePrecision"]
-                            .as_str()
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    let tick_size = instrument["priceFilter"]["tickSize"].as_str().unwrap();
-                    self.tick_size = f64::from_str(tick_size).unwrap();
-                    // 0.001 --> 3
-                    self.decimal_places =
-                        tick_size.len() - tick_size.find('.').unwrap_or_default() - 1;
-                    return;
-                }
-            }
-            panic!(
-                "Symbol {} not found in instruments-info response.",
-                self.symbol
-            );
-        }
-
-        panic!(
-            "Failed instruments-info request. Code: {}. Msg: {}",
-            content["retCode"], content["retMsg"]
-        );
-    }
+    panic!(
+        "Failed instruments-info request. Code: {}. Msg: {}",
+        content["retCode"], content["retMsg"]
+    );
 }
 
 // TODO: struct `Trades` may need to become a shared struct common across
@@ -180,19 +151,6 @@ mod tests {
 
     use super::*;
 
-    fn create_info() -> Info {
-        Info {
-            base_url: "https://api.example.com".to_string(),
-            symbol: "ADAUSDT".to_string(),
-            base_coin: String::default(),
-            quote_coin: String::default(),
-            base_precision: f64::NAN,
-            quote_precision: f64::NAN,
-            tick_size: f64::NAN,
-            decimal_places: 0,
-        }
-    }
-
     fn create_instrument(tick_size: &str) -> Value {
         json!({
             "symbol": "ADAUSDT",
@@ -217,8 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn info_response_maps_instrument() {
-        let mut info = create_info();
+    fn instrument_info_response_maps_instrument() {
         let response = json!({
             "retCode": 0,
             "retMsg": "OK",
@@ -227,20 +184,19 @@ mod tests {
             }
         });
 
-        info.process_response(&response);
+        let info = process_instrument_info_response("ADAUSDT", &response);
 
         assert_eq!(
             info,
-            Info {
-                base_url: "https://api.example.com".to_string(),
-                symbol: "ADAUSDT".to_string(),
-                base_coin: "ADA".to_string(),
-                quote_coin: "USDT".to_string(),
-                base_precision: 0.01,
-                quote_precision: 0.000001,
-                tick_size: 0.001,
-                decimal_places: 3,
-            }
+            InstrumentInfo::new(
+                "ADAUSDT".to_string(),
+                "ADA".to_string(),
+                "USDT".to_string(),
+                0.01,
+                0.000001,
+                0.001,
+                3,
+            )
         );
     }
 
@@ -249,11 +205,10 @@ mod tests {
     #[case("0.1", 1)]
     #[case("0.001", 3)]
     #[case("0.000100", 6)]
-    fn info_response_calculates_tick_size_decimal_places(
+    fn instrument_info_response_calculates_tick_size_decimal_places(
         #[case] tick_size: &str,
         #[case] expected_decimal_places: usize,
     ) {
-        let mut info = create_info();
         let response = json!({
             "retCode": 0,
             "retMsg": "OK",
@@ -262,35 +217,33 @@ mod tests {
             }
         });
 
-        info.process_response(&response);
+        let info = process_instrument_info_response("ADAUSDT", &response);
 
-        assert_eq!(info.decimal_places, expected_decimal_places);
+        assert_eq!(info.decimal_places(), expected_decimal_places);
     }
 
     #[test]
     #[should_panic(expected = "Symbol ADAUSDT not found in instruments-info response.")]
-    fn info_response_panics_when_symbol_is_missing() {
-        let mut info = create_info();
+    fn instrument_info_response_panics_when_symbol_is_missing() {
         let response = json!({
             "retCode": 0,
             "retMsg": "OK",
             "result": { "list": [] }
         });
 
-        info.process_response(&response);
+        process_instrument_info_response("ADAUSDT", &response);
     }
 
     #[test]
     #[should_panic(expected = "Failed instruments-info request.")]
-    fn info_response_panics_when_request_is_rejected() {
-        let mut info = create_info();
+    fn instrument_info_response_panics_when_request_is_rejected() {
         let response = json!({
             "retCode": 10001,
             "retMsg": "Invalid symbol",
             "result": { "list": [] }
         });
 
-        info.process_response(&response);
+        process_instrument_info_response("ADAUSDT", &response);
     }
 
     #[test]

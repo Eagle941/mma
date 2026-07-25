@@ -1,12 +1,12 @@
 use std::io;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use configuration::SharedAppConfig;
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_queue::ArrayQueue;
-use exchange::bybit::market::{Info, Trades};
+use exchange::bybit::market::{Trades, get_instrument_info};
 use exchange::bybit::order::OrderHandler;
 use exchange::bybit::private_ws::PrivateWebSocket;
 use exchange::bybit::public_ws::PublicWebSocket;
@@ -14,6 +14,7 @@ use exchange::bybit::wallet::Wallet;
 use exchange::{OrderBook, OrderBuilder, OrderEvent};
 use oms::{OmsConfig, OrderManagementSystem};
 use recorder::MarkoutEngine;
+use strategy::StrategyRunner;
 use strategy::simple::SimpleStrategy;
 use triple_buffer::{Input, Output};
 
@@ -100,22 +101,18 @@ pub(super) fn create_recorder_thread(
 pub(super) fn create_strategy_thread(
     strategy_orders_tx: Sender<OrderBuilder>,
     strategy_inventory: Arc<ArrayQueue<f64>>,
-    mut order_book_output: Output<OrderBook>,
+    order_book_output: Output<OrderBook>,
     config: SharedAppConfig,
 ) -> io::Result<JoinHandle<()>> {
     spawn_named("strategy_thread", move || {
-        let instrument_info = Info::new(config.as_ref());
-        let mut simple_strategy = SimpleStrategy::new(
+        let instrument_info = get_instrument_info(config.as_ref());
+        let strategy = Box::new(SimpleStrategy::new(config.order_size(), instrument_info));
+        let mut strategy_runner = StrategyRunner::new(
+            strategy,
             strategy_orders_tx,
             strategy_inventory,
-            config.as_ref(),
-            instrument_info,
+            order_book_output,
         );
-        loop {
-            // NOTE: strategy is executed at around 1Hz for learning
-            let order_book = order_book_output.read();
-            simple_strategy.execute(order_book);
-            thread::sleep(Duration::from_secs(1));
-        }
+        strategy_runner.cycle();
     })
 }

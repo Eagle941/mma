@@ -8,6 +8,82 @@ use strum::{Display as EnumDisplay, EnumString};
 
 pub mod bybit;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstrumentInfo {
+    symbol: String,
+    base_coin: String,
+    quote_coin: String,
+    base_precision: f64,
+    quote_precision: f64,
+    tick_size: f64,
+    decimal_places: usize,
+}
+impl InstrumentInfo {
+    pub fn new(
+        symbol: String,
+        base_coin: String,
+        quote_coin: String,
+        base_precision: f64,
+        quote_precision: f64,
+        tick_size: f64,
+        decimal_places: usize,
+    ) -> Self {
+        assert!(!symbol.is_empty(), "Instrument symbol must not be empty.");
+        assert!(!base_coin.is_empty(), "Base coin must not be empty.");
+        assert!(!quote_coin.is_empty(), "Quote coin must not be empty.");
+        assert!(
+            base_precision.is_finite() && base_precision > 0.0,
+            "Base precision must be finite and greater than zero."
+        );
+        assert!(
+            quote_precision.is_finite() && quote_precision > 0.0,
+            "Quote precision must be finite and greater than zero."
+        );
+        assert!(
+            tick_size.is_finite() && tick_size > 0.0,
+            "Tick size must be finite and greater than zero."
+        );
+
+        Self {
+            symbol,
+            base_coin,
+            quote_coin,
+            base_precision,
+            quote_precision,
+            tick_size,
+            decimal_places,
+        }
+    }
+
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    pub fn base_coin(&self) -> &str {
+        &self.base_coin
+    }
+
+    pub fn quote_coin(&self) -> &str {
+        &self.quote_coin
+    }
+
+    pub fn base_precision(&self) -> f64 {
+        self.base_precision
+    }
+
+    pub fn quote_precision(&self) -> f64 {
+        self.quote_precision
+    }
+
+    pub fn tick_size(&self) -> f64 {
+        self.tick_size
+    }
+
+    pub fn decimal_places(&self) -> usize {
+        self.decimal_places
+    }
+}
+
 // TODO: make `OrderBook` struct shared across all exchanges.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Level {
@@ -236,6 +312,20 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "Tick size must be finite and greater than zero.")]
+    fn instrument_info_rejects_invalid_tick_size() {
+        InstrumentInfo::new(
+            "ADAUSDT".to_string(),
+            "ADA".to_string(),
+            "USDT".to_string(),
+            0.01,
+            0.000001,
+            0.0,
+            3,
+        );
+    }
 
     #[test]
     fn level_from_orderbook_item_parses_price_and_size() {

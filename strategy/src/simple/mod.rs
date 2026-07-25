@@ -1,50 +1,26 @@
-use std::sync::Arc;
-
-use configuration::AppConfigProvider;
-use crossbeam_channel::Sender;
-use crossbeam_queue::ArrayQueue;
-use exchange::bybit::market::Info;
-use exchange::{OrderBook, OrderBuilder, OrderSide, OrderType};
+use exchange::{InstrumentInfo, OrderBook, OrderBuilder, OrderSide, OrderType};
 use log::{info, warn};
+
+use crate::Strategy;
 
 #[derive(Debug)]
 pub struct SimpleStrategy {
     size: f64,
-    instrument_info: Info,
-    to_oms: Sender<OrderBuilder>,
-    from_oms: Arc<ArrayQueue<f64>>,
-    inventory: f64,
+    instrument_info: InstrumentInfo,
 }
 impl SimpleStrategy {
-    pub fn new(
-        to_oms: Sender<OrderBuilder>,
-        from_oms: Arc<ArrayQueue<f64>>,
-        config: &dyn AppConfigProvider,
-        instrument_info: Info,
-    ) -> SimpleStrategy {
-        let inventory = from_oms.pop().unwrap_or(0.0);
+    pub fn new(size: f64, instrument_info: InstrumentInfo) -> SimpleStrategy {
+        assert!(
+            size.is_finite() && size > 0.0,
+            "Order size must be finite and greater than zero."
+        );
         SimpleStrategy {
-            to_oms,
-            from_oms,
-            size: config.order_size(),
+            size,
             instrument_info,
-            inventory,
         }
     }
 
-    pub fn execute(&mut self, order_book: &OrderBook) {
-        if order_book.bids.is_empty() || order_book.asks.is_empty() {
-            warn!("Empty book");
-            return;
-        }
-
-        self.inventory = self.from_oms.pop().unwrap_or(self.inventory);
-        self.compute_orders(order_book)
-            .into_iter()
-            .for_each(|order| self.to_oms.send(order).unwrap());
-    }
-
-    fn compute_orders(&mut self, order_book: &OrderBook) -> Vec<OrderBuilder> {
+    fn compute_orders(&self, order_book: &OrderBook, inventory: f64) -> Vec<OrderBuilder> {
         const BASE_SPREAD: f64 = 2.0;
         const SKEW_FACTOR: f64 = 0.01;
 
@@ -53,7 +29,7 @@ impl SimpleStrategy {
         let first_ask = order_book.asks.first().unwrap();
         // let last_ask = order_book.asks.last().unwrap();
 
-        let decimal_digits = self.instrument_info.decimal_places;
+        let decimal_digits = self.instrument_info.decimal_places();
         info!(
             "B {:.*} | A {:.*} | S {:.*}",
             decimal_digits,
@@ -68,13 +44,13 @@ impl SimpleStrategy {
             }
         );
 
-        let precision = self.instrument_info.tick_size;
+        let precision = self.instrument_info.tick_size();
         // TODO: check if I should go to different levels for the mid price depending on
         // the volume available in the top level.
         let micro_price = (first_bid.price * first_bid.size + first_ask.price * first_ask.size)
             / (first_bid.size + first_ask.size);
 
-        let price_shift = self.inventory * SKEW_FACTOR * precision;
+        let price_shift = inventory * SKEW_FACTOR * precision;
         let reservation_price = micro_price - price_shift;
 
         let mut bid_price = reservation_price - (BASE_SPREAD * precision);
@@ -93,7 +69,7 @@ impl SimpleStrategy {
         // TODO: Deal with channel send errors
         // TODO: Optimise use of vector to return orders to submit to oms
         let bid_order = OrderBuilder {
-            symbol: self.instrument_info.symbol.clone(),
+            symbol: self.instrument_info.symbol().to_string(),
             side: OrderSide::Buy,
             order_type: OrderType::Limit,
             qty: self.size,
@@ -101,7 +77,7 @@ impl SimpleStrategy {
         };
 
         let ask_order = OrderBuilder {
-            symbol: self.instrument_info.symbol.clone(),
+            symbol: self.instrument_info.symbol().to_string(),
             side: OrderSide::Sell,
             order_type: OrderType::Limit,
             qty: self.size,
@@ -109,5 +85,128 @@ impl SimpleStrategy {
         };
 
         vec![bid_order, ask_order]
+    }
+}
+
+impl Strategy for SimpleStrategy {
+    fn execute(&mut self, order_book: &OrderBook, inventory: f64) -> Vec<OrderBuilder> {
+        assert!(inventory.is_finite(), "Inventory must be finite.");
+
+        let (Some(first_bid), Some(first_ask)) = (order_book.bids.first(), order_book.asks.first())
+        else {
+            warn!("Empty book");
+            return Vec::new();
+        };
+
+        if !first_bid.price.is_finite()
+            || first_bid.price <= 0.0
+            || !first_bid.size.is_finite()
+            || first_bid.size <= 0.0
+            || !first_ask.price.is_finite()
+            || first_ask.price <= 0.0
+            || !first_ask.size.is_finite()
+            || first_ask.size <= 0.0
+        {
+            warn!("Invalid top-of-book values");
+            return Vec::new();
+        }
+
+        self.compute_orders(order_book, inventory)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use exchange::Level;
+
+    use super::*;
+
+    fn instrument_info() -> InstrumentInfo {
+        InstrumentInfo::new(
+            "ADAUSDT".to_string(),
+            "ADA".to_string(),
+            "USDT".to_string(),
+            0.01,
+            0.000001,
+            0.001,
+            3,
+        )
+    }
+
+    #[test]
+    fn execute_returns_orders_using_current_inventory() {
+        let mut strategy = SimpleStrategy::new(25.0, instrument_info());
+        let order_book = OrderBook {
+            bids: vec![Level {
+                price: 0.499,
+                size: 1000.0,
+            }],
+            asks: vec![Level {
+                price: 0.501,
+                size: 1000.0,
+            }],
+            ..OrderBook::default()
+        };
+
+        let orders = strategy.execute(&order_book, 100.0);
+
+        assert_eq!(
+            orders,
+            vec![
+                OrderBuilder {
+                    symbol: "ADAUSDT".to_string(),
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Limit,
+                    qty: 25.0,
+                    price: "0.497".to_string(),
+                },
+                OrderBuilder {
+                    symbol: "ADAUSDT".to_string(),
+                    side: OrderSide::Sell,
+                    order_type: OrderType::Limit,
+                    qty: 25.0,
+                    price: "0.501".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn execute_returns_no_orders_for_empty_book() {
+        let mut strategy = SimpleStrategy::new(25.0, instrument_info());
+
+        assert!(strategy.execute(&OrderBook::default(), 0.0).is_empty());
+    }
+
+    #[test]
+    fn execute_returns_no_orders_for_invalid_top_of_book() {
+        let mut strategy = SimpleStrategy::new(25.0, instrument_info());
+        let order_book = OrderBook {
+            bids: vec![Level {
+                price: 0.499,
+                size: 0.0,
+            }],
+            asks: vec![Level {
+                price: 0.501,
+                size: 1000.0,
+            }],
+            ..OrderBook::default()
+        };
+
+        assert!(strategy.execute(&order_book, 0.0).is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Inventory must be finite.")]
+    fn execute_rejects_invalid_inventory() {
+        let mut strategy = SimpleStrategy::new(25.0, instrument_info());
+
+        strategy.execute(&OrderBook::default(), f64::NAN);
+    }
+
+    #[test]
+    #[should_panic(expected = "Order size must be finite and greater than zero.")]
+    fn new_rejects_invalid_order_size() {
+        SimpleStrategy::new(f64::NAN, instrument_info());
     }
 }
