@@ -4,6 +4,7 @@ on: push
 env:
     RUST_VERSION: 1.93.0 # If this is updated, update `Cargo.toml`.
     CARGO_TERM_COLOR: always
+    RUSTFLAGS: "" # GH doesn't handle the flag cpu-native
     RUSTDOCFLAGS: "-D warnings" # Fail on `cargo doc` warnings.
 
 jobs:
@@ -26,9 +27,6 @@ jobs:
             - name: Build
               run: cargo build --locked
             - name: Run tests
-              env:
-                  # rstest doesn't handle the flag cpu-native
-                  RUSTFLAGS: ""
               run: |
                   id -a
                   sudo apt-get -y install build-essential pkg-config libssl-dev
@@ -96,7 +94,4 @@ jobs:
                       ~/.cargo/git/db/
                       target/
             - name: Cargo doc
-              env:
-                  # icu_properties doesn't handle the flag cpu-native
-                  RUSTFLAGS: ""
               run: cargo doc --no-deps --document-private-items --locked
