@@ -13,8 +13,8 @@ members = [
 [workspace.package]
 # If this version is changed, amend the edition set in `rustfmt.toml`.
 edition = "2024"
-# If this version is changed, amend the version set in `build.yml`.
-rust-version = "1.93.0"
+# If this version is changed, amend the version set in `rust-toolchain.toml`.
+rust-version = "1.96.0"
 # Prevent publishing by accident.
 publish = false
 repository = "https://github.com/Eagle941/mma"
@@ -36,4 +36,4 @@ crossbeam-queue = "0.3.12"
 log = "0.4.29"
 log-execution-time = "0.1.0"
 rstest = "0.26.1"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.53.0", features = ["full"] }
