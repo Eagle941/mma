@@ -12,6 +12,7 @@ use exchange::{OrderBook, OrderBuilder, OrderMessages};
 use exitcode::{OK, SOFTWARE};
 use log::info;
 use oms::OrderManagementSystem;
+use recorder::MarkoutEngine;
 use strategy::simple::SimpleStrategy;
 use triple_buffer::TripleBuffer;
 
@@ -52,19 +53,28 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let order_book = OrderBook::default();
     let (mut producer, mut consumer) = TripleBuffer::new(&order_book).split();
 
+    // NOTE: The queue has a length of 1 because only the most recent value of
+    // order_book is useful. If the queue is full, the value is replaced.
+    let order_book_queue: ArrayQueue<OrderBook> = ArrayQueue::new(1);
+    let order_book_queue = Arc::new(order_book_queue);
+    let to_recorder = Arc::clone(&order_book_queue);
+    let from_book = Arc::clone(&order_book_queue);
+
     let public_ws_thread = thread::Builder::new()
         .name("public_ws_thread".to_string())
         .spawn(move || {
             let symbol =
                 env::var("MMA_SYMBOL").expect("MMA_SYMBOL env variable must not be blank.");
-            let mut handler = PublicWebSocket::default();
+            let mut handler = PublicWebSocket::new(to_recorder);
             handler.subscribe(&mut producer, &symbol);
         })?;
 
     let (order_builder_to_oms, from_strategy): (Sender<OrderBuilder>, Receiver<OrderBuilder>) =
         unbounded();
-    let (order_to_oms, from_order_handler): (Sender<OrderMessages>, Receiver<OrderMessages>) =
+    let (execution_to_oms, to_oms): (Sender<OrderMessages>, Receiver<OrderMessages>) = unbounded();
+    let (execution_to_recorder, to_recorder): (Sender<OrderMessages>, Receiver<OrderMessages>) =
         unbounded();
+
     // NOTE: The queue has a length of 1 because only the most recent value of
     // inventory is useful. If the queue is full, the value is replaced.
     let inventory_queue: ArrayQueue<f64> = ArrayQueue::new(1);
@@ -75,7 +85,7 @@ fn run(_args: Args) -> anyhow::Result<()> {
     let private_ws_thread = thread::Builder::new()
         .name("private_ws_thread".to_string())
         .spawn(move || {
-            let handler = PrivateWebSocket::new(order_to_oms);
+            let handler = PrivateWebSocket::new(execution_to_oms, execution_to_recorder);
             handler.subscribe();
         })?;
 
@@ -84,11 +94,17 @@ fn run(_args: Args) -> anyhow::Result<()> {
         .spawn(move || {
             let guard = runtime_handle.enter();
 
-            let mut oms =
-                OrderManagementSystem::new(from_strategy, from_order_handler, to_strategy);
+            let mut oms = OrderManagementSystem::new(from_strategy, to_oms, to_strategy);
             oms.cycle();
 
             drop(guard)
+        })?;
+
+    let recorder_thread = thread::Builder::new()
+        .name("recorder_thread".to_string())
+        .spawn(move || {
+            let mut recorder = MarkoutEngine::new(from_book, to_recorder);
+            recorder.cycle();
         })?;
 
     // NOTE: start startegy last after everything else has initialised.
@@ -113,6 +129,9 @@ fn run(_args: Args) -> anyhow::Result<()> {
         .join()
         .expect("private_ws_thread has panicked");
     oms_thread.join().expect("oms_thread has panicked");
+    recorder_thread
+        .join()
+        .expect("recorder_thread has panicked");
     strategy_thread
         .join()
         .expect("strategy_thread has panicked");

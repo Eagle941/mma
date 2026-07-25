@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use ::bybit::ws::response::{Execution, Order as BybitOrder, OrderbookItem};
 use serde::{Deserialize, Serialize};
-use strum::EnumString;
+use strum::{Display as EnumDisplay, EnumString};
 
 pub mod bybit;
 
@@ -40,26 +40,26 @@ pub struct OrderBook {
     pub asks: Vec<Level>,
     // The timestamp (ms) that the system generates the data.
     // UNUSED
-    pub ts: f64,
+    pub ts: u64,
     // The timestamp from the matching engine when this orderbook data is
     // produced. It can be correlated with T from public trade channel.
     // UNUSED
-    pub cts: f64,
+    pub cts: u64,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
 pub enum OrderSide {
     Buy,
     Sell,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumString, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, EnumDisplay, EnumString, PartialEq)]
 pub enum OrderStatus {
     // The status Submitted is used for orders which have been sent to the exchange, but no
     // response has been received yet. They may be lost or rejected.
@@ -111,10 +111,15 @@ impl<'a> From<&BybitOrder<'a>> for OrderMessages {
 impl<'a> From<&Execution<'a>> for OrderMessages {
     fn from(src: &Execution) -> Self {
         let order = OrderExecution {
+            order_id: src.order_id.to_string(),
+            order_side: src.side.try_into().unwrap(),
+            order_price: f64::from_str(src.order_price).unwrap(),
             order_link_id: u64::from_str(src.order_link_id).unwrap(),
-            qty: f64::from_str(src.exec_qty).unwrap(),
-            price: f64::from_str(src.exec_price).unwrap(),
-            fee: f64::from_str(src.exec_fee).unwrap_or(0.0),
+            exec_id: src.exec_id.to_string(),
+            exec_ts: u64::from_str(src.exec_time).unwrap(),
+            exec_qty: f64::from_str(src.exec_qty).unwrap(),
+            exec_price: f64::from_str(src.exec_price).unwrap(),
+            exec_fee: f64::from_str(src.exec_fee).unwrap_or(0.0),
             remaining_qty: f64::from_str(src.leaves_qty).unwrap(),
         };
         OrderMessages::ExecutionUpdate(order)
@@ -177,11 +182,15 @@ pub struct Order {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OrderExecution {
     pub order_link_id: u64,
-    // NOTE: price is the execution price
-    pub price: f64,
-    pub fee: f64,
-    // NOTEL qty is the size of the execution
-    pub qty: f64,
+    pub order_id: String,
+    pub order_price: f64,
+    pub order_side: OrderSide,
+    //
+    pub exec_id: String,
+    pub exec_ts: u64, // ms
+    pub exec_price: f64,
+    pub exec_fee: f64,
+    pub exec_qty: f64,
     pub remaining_qty: f64,
 }
 

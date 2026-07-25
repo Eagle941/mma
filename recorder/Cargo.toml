@@ -1,0 +1,15 @@
+[package]
+name = "recorder"
+version = "0.0.1"
+description = "This records the data from each trade."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+publish.workspace = true
+
+[dependencies]
+crossbeam-channel.workspace = true
+crossbeam-queue.workspace = true
+exchange = { path = "../exchange" }
+log.workspace = true

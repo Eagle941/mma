@@ -44,29 +44,21 @@ impl SimpleStrategy {
         SimpleStrategy::new(to_oms, from_oms, size, symbol.as_str())
     }
 
-    // fn calculate_profits(&self, bid_price: f64, bid_qty: f64, ask_price: f64,
-    // ask_qty: f64) -> f64 {     const MAKER_FEE: f64 = 0.0676; // %
-    //     const BORROW_FEE_HOURLY: f64 = 0.00060432; // %
-
-    //     let gross_profit = ask_qty * ask_price - bid_qty * bid_price;
-    //     let buy_fees = (bid_qty * bid_price) * (MAKER_FEE / 100.0);
-    //     let sell_fees = (ask_qty * ask_price) * (MAKER_FEE / 100.0);
-    //     // NOTE: assuming I need to borrow ADA to make a sell order and I pay
-    // borrowing     // fees for 5 hours.
-    //     let borrow_fees = (ask_qty * ask_price) * (BORROW_FEE_HOURLY * 5.0 /
-    // 100.0);     gross_profit - buy_fees - sell_fees - borrow_fees
-    // }
-
     pub fn execute(&mut self, order_book: &OrderBook) {
-        const BASE_SPREAD: f64 = 2.0;
-        const SKEW_FACTOR: f64 = 0.01;
-
         if order_book.bids.is_empty() || order_book.asks.is_empty() {
             warn!("Empty book");
             return;
         }
 
         self.inventory = self.from_oms.pop().unwrap_or(self.inventory);
+        self.compute_orders(order_book)
+            .into_iter()
+            .for_each(|order| self.to_oms.send(order).unwrap());
+    }
+
+    fn compute_orders(&mut self, order_book: &OrderBook) -> Vec<OrderBuilder> {
+        const BASE_SPREAD: f64 = 2.0;
+        const SKEW_FACTOR: f64 = 0.01;
 
         let first_bid = order_book.bids.first().unwrap();
         // let last_bid = order_book.bids.last().unwrap();
@@ -89,29 +81,29 @@ impl SimpleStrategy {
         );
 
         let precision = self.instrument_info.tick_size;
-        let mid_price = (first_bid.price + first_ask.price) / 2.0;
+        // TODO: check if I should go to different levels for the mid price depending on
+        // the volume available in the top level.
+        let micro_price = (first_bid.price * first_bid.size + first_ask.price * first_ask.size)
+            / (first_bid.size + first_ask.size);
 
         let price_shift = self.inventory * SKEW_FACTOR * precision;
-        let reservation_price = mid_price - price_shift;
+        let reservation_price = micro_price - price_shift;
 
         let mut bid_price = reservation_price - (BASE_SPREAD * precision);
         let mut ask_price = reservation_price + (BASE_SPREAD * precision);
 
-        if bid_price >= ask_price {
-            if self.inventory.is_sign_positive() {
-                bid_price = ask_price - precision;
-            } else {
-                ask_price = bid_price + precision;
-            }
+        if bid_price >= first_ask.price {
+            bid_price = first_ask.price - precision;
         }
 
-        // let profits = self.calculate_profits(bid_price, self.size, ask_price,
-        // self.size); println!("Expected {profits:.*} USDT",
-        // decimal_digits);
+        if ask_price <= first_bid.price {
+            ask_price = first_bid.price + precision;
+        }
 
         // TODO: Optimise String cloning
         // TODO: Make batch order submission
         // TODO: Deal with channel send errors
+        // TODO: Optimise use of vector to return orders to submit to oms
         let bid_order = OrderBuilder {
             symbol: self.instrument_info.symbol.clone(),
             side: OrderSide::Buy,
@@ -119,8 +111,6 @@ impl SimpleStrategy {
             qty: self.size,
             price: format!("{bid_price:.*}", decimal_digits),
         };
-        info!("Sending buy order");
-        self.to_oms.send(bid_order).unwrap();
 
         let ask_order = OrderBuilder {
             symbol: self.instrument_info.symbol.clone(),
@@ -129,7 +119,7 @@ impl SimpleStrategy {
             qty: self.size,
             price: format!("{ask_price:.*}", decimal_digits),
         };
-        info!("Sending sell order");
-        self.to_oms.send(ask_order).unwrap();
+
+        return vec![bid_order, ask_order];
     }
 }
