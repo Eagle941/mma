@@ -1,0 +1,36 @@
+name: Dependency audit
+
+on:
+    pull_request:
+        paths:
+            - "**/Cargo.toml"
+            - "Cargo.lock"
+            - ".github/workflows/dependency-audit.yml"
+    push:
+        branches: [main]
+        paths:
+            - "**/Cargo.toml"
+            - "Cargo.lock"
+            - ".github/workflows/dependency-audit.yml"
+    schedule:
+        # Run every Monday at 03:00 UTC.
+        - cron: "0 3 * * 1"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    audit:
+        name: RustSec audit
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+
+            - name: Install cargo-audit
+              uses: taiki-e/install-action@cargo-audit
+
+            - name: Audit dependencies
+              run: cargo audit
