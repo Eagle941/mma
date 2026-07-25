@@ -5,13 +5,13 @@ on:
         paths:
             - "**/Cargo.toml"
             - "Cargo.lock"
-            - ".github/workflows/dependency-audit.yml"
+            - ".github/workflows/audit.yml"
     push:
         branches: [main]
         paths:
             - "**/Cargo.toml"
             - "Cargo.lock"
-            - ".github/workflows/dependency-audit.yml"
+            - ".github/workflows/audit.yml"
     schedule:
         # Run every Monday at 03:00 UTC.
         - cron: "0 3 * * 1"
