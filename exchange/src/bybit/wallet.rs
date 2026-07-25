@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::env;
 use std::str::FromStr;
 
 use attohttpc::Session;
 use chrono::Utc;
+use configuration::AppConfigProvider;
 use serde_json::Value;
 
 use crate::bybit::utils::{generate_signature, get_base_url};
@@ -20,11 +20,10 @@ pub struct Wallet {
 impl Wallet {
     // NOTE: The default implementation doesn't have any sense for this struct.
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let base_url = get_base_url();
-        let api_key = env::var("API_KEY").expect("API_KEY env variable must not be blank.");
-        let api_secret =
-            env::var("API_SECRET").expect("API_SECRET env variable must not be blank.");
+    pub fn new(config: &dyn AppConfigProvider) -> Self {
+        let base_url = get_base_url(config.testnet());
+        let api_key = config.api_key().to_string();
+        let api_secret = config.api_secret().to_string();
         // how long an HTTP request is valid. It is also used to prevent replay
         // attacks.
         // A smaller X-BAPI-RECV-WINDOW is more secure, but your request may
@@ -56,8 +55,7 @@ impl Wallet {
             &self.recv_window,
             query,
             &self.api_secret,
-        )
-        .unwrap();
+        );
 
         let res = self
             .session
@@ -72,31 +70,172 @@ impl Wallet {
                 } else {
                     let content = x.text().unwrap();
                     let content: Value = serde_json::from_str(&content).unwrap();
-                    // NOTE: I am not deserialising the result in a struct because it's not time
-                    // critical and I don't need all the parameters.
-                    if content["retCode"].as_i64().unwrap() == 0 {
-                        // NOTE: there should be only one object under list because there is only
-                        // one UNIFIED account.
-                        // TODO: should I add a check that length of list is only 1?
-                        for s in content["result"]["list"].as_array().unwrap() {
-                            for coin in s["coin"].as_array().unwrap() {
-                                let name = coin["coin"].as_str().unwrap().to_string();
-                                let balance =
-                                    f64::from_str(coin["equity"].as_str().unwrap()).unwrap();
-                                self.coins.insert(name, balance);
-                            }
-                        }
-                    } else {
-                        panic!(
-                            "Failed wallet-balance request. Code: {}. Msg: {}",
-                            content["retCode"], content["retMsg"]
-                        );
-                    }
+                    self.process_response(&content);
                 }
             }
             Err(x) => {
                 panic!("Failed to receive wallet-balance. Error {x}.");
             }
         }
+    }
+
+    fn process_response(&mut self, content: &Value) {
+        if content["retCode"].as_i64().unwrap() == 0 {
+            let accounts = content["result"]["list"].as_array().unwrap();
+            let [account] = accounts.as_slice() else {
+                panic!(
+                    "Expected exactly one UNIFIED account in wallet-balance response, found {}.",
+                    accounts.len()
+                );
+            };
+            for coin in account["coin"].as_array().unwrap() {
+                let name = coin["coin"].as_str().unwrap().to_string();
+                let balance = f64::from_str(coin["equity"].as_str().unwrap()).unwrap();
+                assert!(
+                    !self.coins.contains_key(&name),
+                    "Duplicate coin {name} in wallet-balance response."
+                );
+                self.coins.insert(name, balance);
+            }
+            return;
+        }
+
+        panic!(
+            "Failed wallet-balance request. Code: {}. Msg: {}",
+            content["retCode"], content["retMsg"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn create_wallet() -> Wallet {
+        Wallet {
+            base_url: "https://api.example.com".to_string(),
+            api_key: "api-key".to_string(),
+            api_secret: "api-secret".to_string(),
+            recv_window: "1000".to_string(),
+            session: Session::new(),
+            coins: HashMap::default(),
+        }
+    }
+
+    #[test]
+    fn wallet_response_maps_coin_equities() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {
+                "list": [{
+                    "coin": [
+                        { "coin": "ADA", "equity": "100.5" },
+                        { "coin": "USDT", "equity": "250.25" },
+                        { "coin": "BTC", "equity": "0" },
+                        { "coin": "ETH", "equity": "-0.125" }
+                    ]
+                }]
+            }
+        });
+
+        wallet.process_response(&response);
+
+        assert_eq!(
+            wallet.coins,
+            HashMap::from([
+                ("ADA".to_string(), 100.5),
+                ("USDT".to_string(), 250.25),
+                ("BTC".to_string(), 0.0),
+                ("ETH".to_string(), -0.125),
+            ])
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Expected exactly one UNIFIED account in wallet-balance response, found 0."
+    )]
+    fn wallet_response_panics_when_account_is_missing() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": { "list": [] }
+        });
+
+        wallet.process_response(&response);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Expected exactly one UNIFIED account in wallet-balance response, found 2."
+    )]
+    fn wallet_response_panics_for_multiple_accounts() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {
+                "list": [
+                    { "coin": [{ "coin": "ADA", "equity": "100.5" }] },
+                    { "coin": [{ "coin": "USDT", "equity": "250.25" }] }
+                ]
+            }
+        });
+
+        wallet.process_response(&response);
+    }
+
+    #[test]
+    fn wallet_response_with_no_coins_leaves_wallet_empty() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {
+                "list": [{ "coin": [] }]
+            }
+        });
+
+        wallet.process_response(&response);
+
+        assert!(wallet.coins.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Duplicate coin ADA in wallet-balance response.")]
+    fn wallet_response_panics_for_duplicate_coin() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {
+                "list": [{
+                    "coin": [
+                        { "coin": "ADA", "equity": "100.5" },
+                        { "coin": "ADA", "equity": "120.75" }
+                    ]
+                }]
+            }
+        });
+
+        wallet.process_response(&response);
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed wallet-balance request.")]
+    fn wallet_response_panics_when_request_is_rejected() {
+        let mut wallet = create_wallet();
+        let response = json!({
+            "retCode": 10001,
+            "retMsg": "Invalid request",
+            "result": { "list": [] }
+        });
+
+        wallet.process_response(&response);
     }
 }
