@@ -74,15 +74,10 @@ jobs:
                       ~/.cargo/registry/cache/
                       ~/.cargo/git/db/
                       target/
-            - name: Install rust nightly
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: nightly
-                  profile: minimal
-                  override: true
-                  components: rustfmt
+            - name: Install nightly Rustfmt
+              run: rustup toolchain install nightly-2026-07-20 --profile minimal --component rustfmt
             - name: Cargo fmt
-              run: cargo +nightly fmt --all -- --check
+              run: cargo  +nightly-2026-07-20 fmt --all -- --check
 
     doc:
         name: Documentation
