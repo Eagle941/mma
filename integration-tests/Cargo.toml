@@ -1,0 +1,21 @@
+[package]
+name = "integration-tests"
+version = "0.0.1"
+description = "Deterministic offline integration tests for the market maker."
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[test]]
+name = "offline_market"
+path = "tests/offline_market/test.rs"
+
+[dev-dependencies]
+assert_approx_eq.workspace = true
+crossbeam-channel.workspace = true
+crossbeam-queue.workspace = true
+exchange = { path = "../exchange" }
+oms = { path = "../oms" }
+recorder = { path = "../recorder" }
+strategy = { path = "../strategy" }

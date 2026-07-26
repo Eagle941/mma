@@ -5,6 +5,7 @@ members = [
   "cli",
   "configuration",
   "exchange",
+  "integration-tests",
   "oms",
   "recorder",
   "strategy"

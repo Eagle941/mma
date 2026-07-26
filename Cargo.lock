@@ -1148,6 +1148,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.0.1"
+dependencies = [
+ "assert_approx_eq",
+ "crossbeam-channel",
+ "crossbeam-queue",
+ "exchange",
+ "oms",
+ "recorder",
+ "strategy",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

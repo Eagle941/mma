@@ -101,6 +101,10 @@ impl OrderManagementSystem {
         self.orders.get(*slab_index)
     }
 
+    pub fn orders(&self) -> impl Iterator<Item = &Order> {
+        self.orders.iter().map(|(_, order)| order)
+    }
+
     pub fn open_orders(&self) -> impl Iterator<Item = &Order> {
         self.orders.iter().filter_map(|(_, order)| {
             if order.order_status.is_open() {

@@ -9,6 +9,8 @@ use triple_buffer::Output;
 
 pub mod simple;
 
+pub const STRATEGY_INTERVAL_MS: u64 = 1000;
+
 pub trait Strategy {
     fn execute(&mut self, order_book: &OrderBook, inventory: f64) -> Vec<OrderBuilder>;
 }
@@ -45,7 +47,7 @@ impl StrategyRunner {
                 .execute(order_book, inventory)
                 .into_iter()
                 .for_each(|order| self.orders_tx.send(order).unwrap());
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(STRATEGY_INTERVAL_MS));
         }
     }
 }
