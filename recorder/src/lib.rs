@@ -10,8 +10,8 @@ use log::info;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct DataPoint {
-    mid_price: f64,
-    imbalance: f64,
+    pub mid_price: f64,
+    pub imbalance: f64,
 }
 impl fmt::Display for DataPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -55,7 +55,60 @@ impl fmt::Display for PendingMarkout {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompletedMarkout {
+    pub exec_id: String,
+    pub order_link_id: u64,
+    pub fill_ts: u64,
+    pub side: OrderSide,
+    pub limit_price: f64,
+    pub exec_price: f64,
+    pub exec_qty: f64,
+    pub mid_1s: DataPoint,
+    pub mid_5s: DataPoint,
+    pub mid_10s: DataPoint,
+}
+impl From<(String, PendingMarkout)> for CompletedMarkout {
+    fn from((exec_id, pending): (String, PendingMarkout)) -> Self {
+        Self {
+            exec_id,
+            order_link_id: pending.order_link_id,
+            fill_ts: pending.fill_ts,
+            side: pending.side,
+            limit_price: pending.limit_price,
+            exec_price: pending.exec_price,
+            exec_qty: pending.exec_qty,
+            mid_1s: pending
+                .mid_1s
+                .expect("completed markout must have a 1s value"),
+            mid_5s: pending
+                .mid_5s
+                .expect("completed markout must have a 5s value"),
+            mid_10s: pending
+                .mid_10s
+                .expect("completed markout must have a 10s value"),
+        }
+    }
+}
+impl fmt::Display for CompletedMarkout {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {} {} {:.5} {:.5} {:.5} {} {} {}",
+            self.order_link_id,
+            self.fill_ts,
+            self.side,
+            self.limit_price,
+            self.exec_price,
+            self.exec_qty,
+            self.mid_1s,
+            self.mid_5s,
+            self.mid_10s,
+        )
+    }
+}
+
+#[derive(Debug)]
 pub struct MarkoutEngine {
     // TODO: Replace `ArrayQueue` with a latest-value data structure that notifies
     // the consumer when a new order book is available, eliminating polling.
@@ -80,8 +133,9 @@ impl MarkoutEngine {
     pub fn cycle(&mut self) {
         loop {
             if let Some(order_book) = self.from_book.pop() {
-                self.update_prices(order_book);
-                self.log_and_remove();
+                for markout in self.process_order_book(order_book) {
+                    info!("ExecId {} | {markout}", markout.exec_id);
+                }
             }
 
             match self
@@ -109,6 +163,11 @@ impl MarkoutEngine {
             mid_10s: None,
         };
         self.trades.insert(execution.exec_id, markout);
+    }
+
+    pub fn process_order_book(&mut self, order_book: OrderBook) -> Vec<CompletedMarkout> {
+        self.update_prices(order_book);
+        self.take_completed_markouts()
     }
 
     pub fn update_prices(&mut self, order_book: OrderBook) {
@@ -144,18 +203,26 @@ impl MarkoutEngine {
         }
     }
 
-    pub fn log_and_remove(&mut self) {
-        for (id, t) in self
+    fn take_completed_markouts(&mut self) -> Vec<CompletedMarkout> {
+        let mut completed: Vec<_> = self
             .trades
-            .extract_if(|_, t| t.mid_1s.and(t.mid_5s).and(t.mid_10s).is_some())
-        {
-            info!("ExecId {id} | {t}");
-        }
+            .extract_if(|_, markout| {
+                markout.mid_1s.is_some() && markout.mid_5s.is_some() && markout.mid_10s.is_some()
+            })
+            .collect();
+        completed.sort_by(|(left_exec_id, left), (right_exec_id, right)| {
+            left.fill_ts
+                .cmp(&right.fill_ts)
+                .then_with(|| left.order_link_id.cmp(&right.order_link_id))
+                .then_with(|| left_exec_id.cmp(right_exec_id))
+        });
+        completed.into_iter().map(CompletedMarkout::from).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use crossbeam_channel::unbounded;
     use exchange::Level;
 
@@ -400,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn log_and_remove_removes_only_complete_markouts() {
+    fn take_completed_markouts_returns_once_in_deterministic_order() {
         let order_books = Arc::new(ArrayQueue::new(1));
         let (_events_tx, events_rx) = unbounded();
         let mut recorder = MarkoutEngine::new(order_books, events_rx);
@@ -408,6 +475,20 @@ mod tests {
             mid_price: 100.0,
             imbalance: 0.5,
         };
+        recorder.trades.insert(
+            "earlier-execution".to_string(),
+            PendingMarkout {
+                order_link_id: 999,
+                fill_ts: 9_000,
+                side: OrderSide::Sell,
+                limit_price: 99.0,
+                exec_price: 99.0,
+                exec_qty: 0.5,
+                mid_1s: Some(data_point),
+                mid_5s: Some(data_point),
+                mid_10s: Some(data_point),
+            },
+        );
         recorder.trades.insert(
             "complete-execution".to_string(),
             PendingMarkout {
@@ -437,9 +518,39 @@ mod tests {
             },
         );
 
-        recorder.log_and_remove();
+        let completed = recorder.take_completed_markouts();
 
-        assert!(!recorder.trades.contains_key("complete-execution"));
+        assert!(recorder.take_completed_markouts().is_empty());
+        assert_eq!(recorder.trades.len(), 1);
         assert!(recorder.trades.contains_key("pending-execution"));
+        assert_eq!(
+            completed,
+            vec![
+                CompletedMarkout {
+                    exec_id: "earlier-execution".to_string(),
+                    order_link_id: 999,
+                    fill_ts: 9_000,
+                    side: OrderSide::Sell,
+                    limit_price: 99.0,
+                    exec_price: 99.0,
+                    exec_qty: 0.5,
+                    mid_1s: data_point,
+                    mid_5s: data_point,
+                    mid_10s: data_point,
+                },
+                CompletedMarkout {
+                    exec_id: "complete-execution".to_string(),
+                    order_link_id: 1000,
+                    fill_ts: 10_000,
+                    side: OrderSide::Buy,
+                    limit_price: 100.0,
+                    exec_price: 100.0,
+                    exec_qty: 1.0,
+                    mid_1s: data_point,
+                    mid_5s: data_point,
+                    mid_10s: data_point,
+                },
+            ]
+        );
     }
 }

@@ -88,6 +88,33 @@ impl OrderManagementSystem {
         }
     }
 
+    pub fn inventory(&self) -> f64 {
+        self.metrics.inventory()
+    }
+
+    pub fn average_entry_price(&self) -> f64 {
+        self.metrics.average_entry_price()
+    }
+
+    pub fn order(&self, order_link_id: u64) -> Option<&Order> {
+        let slab_index = self.id_map.get(&order_link_id)?;
+        self.orders.get(*slab_index)
+    }
+
+    pub fn orders(&self) -> impl Iterator<Item = &Order> {
+        self.orders.iter().map(|(_, order)| order)
+    }
+
+    pub fn open_orders(&self) -> impl Iterator<Item = &Order> {
+        self.orders.iter().filter_map(|(_, order)| {
+            if order.order_status.is_open() {
+                Some(order)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn cycle(&mut self) {
         let risk_manager = RiskManager;
 
@@ -397,16 +424,9 @@ mod tests {
         }
 
         fn stored_order(&self, order_link_id: u64) -> &Order {
-            let slab_index = self
-                .oms
-                .id_map
-                .get(&order_link_id)
-                .expect("order link ID should be indexed");
-
             self.oms
-                .orders
-                .get(*slab_index)
-                .expect("indexed order should exist in the slab")
+                .order(order_link_id)
+                .expect("order link ID should be indexed")
         }
 
         fn submit_new_order(&mut self, order: &OrderBuilder) -> u64 {
@@ -520,8 +540,8 @@ mod tests {
         );
 
         assert_eq!(oms.coin, coin);
-        assert_eq!(oms.metrics.inventory(), inventory);
-        assert_eq!(oms.metrics.average_entry_price(), avg_entry_price);
+        assert_eq!(oms.inventory(), inventory);
+        assert_eq!(oms.average_entry_price(), avg_entry_price);
         assert_eq!(
             oms.id_generator.load(Ordering::Relaxed),
             initial_order_link_id
@@ -551,6 +571,7 @@ mod tests {
 
         assert_eq!(test_bench.oms.orders.len(), 1);
         assert_eq!(test_bench.oms.id_map.len(), 1);
+        assert_eq!(test_bench.oms.open_orders().count(), 1);
         assert_submitted_order_matches_builder(
             test_bench.stored_order(initial_order_link_id),
             initial_order_link_id,

@@ -1148,6 +1148,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.0.1"
+dependencies = [
+ "assert_approx_eq",
+ "crossbeam-channel",
+ "crossbeam-queue",
+ "exchange",
+ "oms",
+ "recorder",
+ "strategy",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2188,11 +2201,11 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "strategy"
 version = "0.0.1"
 dependencies = [
- "configuration",
  "crossbeam-channel",
  "crossbeam-queue",
  "exchange",
  "log",
+ "triple_buffer",
 ]
 
 [[package]]

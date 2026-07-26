@@ -5,6 +5,7 @@ members = [
   "cli",
   "configuration",
   "exchange",
+  "integration-tests",
   "oms",
   "recorder",
   "strategy"
@@ -37,3 +38,4 @@ log = "0.4.29"
 log-execution-time = "0.1.0"
 rstest = "0.26.1"
 tokio = { version = "1.53.0", features = ["full"] }
+triple_buffer = "8.1.1"

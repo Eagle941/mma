@@ -21,7 +21,7 @@ env_logger = "0.11.9"
 exitcode = "1.1.2"
 log.workspace = true
 tokio.workspace = true
-triple_buffer = "8.1.1"
+triple_buffer.workspace = true
 
 configuration = { path = "../configuration" }
 exchange = { path = "../exchange" }
