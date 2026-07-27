@@ -12,7 +12,9 @@ fn bench_order_handler(c: &mut Criterion) {
     let start_time_micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("System clock went backwards!")
-        .as_micros() as u64;
+        .as_micros()
+        .try_into()
+        .expect("current Unix time in microseconds should fit in u64");
     let id_generator = AtomicU64::new(start_time_micros);
 
     let (to_oms, _) = unbounded();
@@ -51,7 +53,7 @@ fn bench_order_handler(c: &mut Criterion) {
                 black_box(&submit_builder),
                 black_box(id_generator.fetch_add(1, Ordering::Relaxed)),
             );
-        })
+        });
     });
 
     group.finish();

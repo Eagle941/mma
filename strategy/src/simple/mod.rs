@@ -9,6 +9,13 @@ pub struct SimpleStrategy {
     instrument_info: InstrumentInfo,
 }
 impl SimpleStrategy {
+    /// Creates a strategy using the configured order size and instrument
+    /// precision.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `size` is not finite and strictly positive.
+    #[must_use]
     pub fn new(size: f64, instrument_info: InstrumentInfo) -> SimpleStrategy {
         assert!(
             size.is_finite() && size > 0.0,
@@ -73,7 +80,7 @@ impl SimpleStrategy {
             side: OrderSide::Buy,
             order_type: OrderType::Limit,
             qty: self.size,
-            price: format!("{bid_price:.*}", decimal_digits),
+            price: format!("{bid_price:.decimal_digits$}"),
         };
 
         let ask_order = OrderBuilder {
@@ -81,7 +88,7 @@ impl SimpleStrategy {
             side: OrderSide::Sell,
             order_type: OrderType::Limit,
             qty: self.size,
-            price: format!("{ask_price:.*}", decimal_digits),
+            price: format!("{ask_price:.decimal_digits$}"),
         };
 
         vec![bid_order, ask_order]
@@ -127,7 +134,7 @@ mod tests {
             "ADA".to_string(),
             "USDT".to_string(),
             0.01,
-            0.000001,
+            0.000_001,
             0.001,
             3,
         )
@@ -207,6 +214,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "Order size must be finite and greater than zero.")]
     fn new_rejects_invalid_order_size() {
-        SimpleStrategy::new(f64::NAN, instrument_info());
+        let _ = SimpleStrategy::new(f64::NAN, instrument_info());
     }
 }

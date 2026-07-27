@@ -143,8 +143,8 @@ impl MarkoutEngine {
                 .recv_timeout(Self::ORDER_BOOK_POLL_INTERVAL)
             {
                 Ok(OrderEvent::ExecutionUpdate(execution)) => self.update_trades(execution),
-                Ok(OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed(_)) => (),
-                Err(RecvTimeoutError::Timeout) => (),
+                Ok(OrderEvent::OrderUpdate(_) | OrderEvent::SubmissionFailed(_))
+                | Err(RecvTimeoutError::Timeout) => (),
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
@@ -170,6 +170,19 @@ impl MarkoutEngine {
         self.take_completed_markouts()
     }
 
+    /// Updates pending markouts from an order-book snapshot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either side of the order book is empty.
+    #[expect(
+        clippy::manual_midpoint,
+        reason = "preserve the established markout calculation and its exact rounding"
+    )]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "retain the public snapshot-consuming API"
+    )]
     pub fn update_prices(&mut self, order_book: OrderBook) {
         let first_bid = order_book.bids.first().unwrap();
         let first_ask = order_book.asks.first().unwrap();
@@ -181,7 +194,7 @@ impl MarkoutEngine {
             imbalance,
         };
 
-        for (_, t) in self.trades.iter_mut() {
+        for t in self.trades.values_mut() {
             match t.mid_1s {
                 None if t.fill_ts + 1000 <= order_book.cts => {
                     t.mid_1s = Some(data_point);
@@ -305,6 +318,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one sequential test makes preservation of all three markout thresholds clearer"
+    )]
     fn update_prices_records_each_markout_at_its_time_threshold() {
         let order_books = Arc::new(ArrayQueue::new(1));
         let (_events_tx, events_rx) = unbounded();

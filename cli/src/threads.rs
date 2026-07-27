@@ -64,10 +64,12 @@ pub(super) fn create_oms_thread(
         } else {
             Trades::new(config.as_ref()).last_price
         };
-        let next_order_link_id = SystemTime::now()
+        let next_order_link_id: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("System clock went backwards!")
-            .as_micros() as u64;
+            .as_micros()
+            .try_into()
+            .expect("Unix epoch microseconds must fit in u64");
         let oms_config = OmsConfig::new(
             config.coin(),
             inventory,
@@ -84,7 +86,7 @@ pub(super) fn create_oms_thread(
         );
         oms.cycle();
 
-        drop(runtime_guard)
+        drop(runtime_guard);
     })
 }
 

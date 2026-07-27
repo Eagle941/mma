@@ -21,6 +21,9 @@ publish = false
 repository = "https://github.com/Eagle941/mma"
 readme = "README.md"
 
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
 [profile.release]
 lto = "fat" # link time optimization using using whole-program analysis
 codegen-units = 1 # optimization over all codebase ( better optimization, slower build )

@@ -73,6 +73,15 @@ fn expected_order(side: OrderSide, price: &str) -> OrderBuilder {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keeping the complete end-to-end market sequence together makes its invariants \
+              readable"
+)]
+#[expect(
+    clippy::manual_midpoint,
+    reason = "mirror the recorder's established midpoint calculation and exact rounding"
+)]
 fn predefined_market_sequence_produces_expected_trading_state() {
     let mut runner = OfflineRunner::new(vec![
         order_book(0, (0.6000, 12_000.0), (0.6004, 8000.0)), // Initial quotes

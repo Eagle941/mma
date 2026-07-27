@@ -51,7 +51,13 @@ pub struct OrderHandler {
     to_oms: Sender<OrderEvent>,
 }
 impl OrderHandler {
-    #[allow(clippy::new_without_default)]
+    /// Creates an order handler using the configured Bybit environment and
+    /// credentials.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the API key is not a valid HTTP header value or the HTTP
+    /// client cannot be built.
     pub fn new(to_oms: Sender<OrderEvent>, config: &dyn AppConfigProvider) -> Self {
         let base_url = get_base_url(config.testnet());
         let api_key = config.api_key().to_string();
@@ -66,7 +72,7 @@ impl OrderHandler {
         headers.insert("X-BAPI-API-KEY", HeaderValue::from_str(&api_key).unwrap());
         headers.insert(
             "X-BAPI-RECV-WINDOW",
-            HeaderValue::from_str(&recv_window.to_string()).unwrap(),
+            HeaderValue::from_str(&recv_window).unwrap(),
         );
         let session = reqwest::Client::builder()
             .default_headers(headers)
@@ -167,7 +173,7 @@ impl OrderHandler {
             // NOTE: This error occurs when an order is filled
             // during the amend
             // request.
-            10001 | 10002 | 170194 | 170193 | 170213 => {
+            10_001 | 10_002 | 170_194 | 170_193 | 170_213 => {
                 info!(
                     "{url} error. {} Code: {}. Msg: {}",
                     order_link_id, content.ret_code, content.ret_msg
@@ -182,7 +188,7 @@ impl OrderHandler {
             // was executed successfully, therefore I don't want to panic.
             // NOTE: this was changed from panic! to error! for quick-repayment not to
             // crash the bot.
-            10000 | 10016 => {
+            10_000 | 10_016 => {
                 error!("{url} Internal server error.");
                 RequestOutcome::Rejected(content.ret_code)
             }
@@ -210,11 +216,8 @@ impl OrderHandler {
     }
 
     async fn send_request(request: RequestBuilder, order_link_id: u64) -> RequestOutcome {
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(_) => {
-                return RequestOutcome::Unknown;
-            }
+        let Ok(response) = request.send().await else {
+            return RequestOutcome::Unknown;
         };
 
         if !response.status().is_success() {
@@ -238,18 +241,12 @@ impl OrderHandler {
             }
         }
 
-        let raw_text = match response.text().await {
-            Ok(raw_text) => raw_text,
-            Err(_) => {
-                return RequestOutcome::Unknown;
-            }
+        let Ok(raw_text) = response.text().await else {
+            return RequestOutcome::Unknown;
         };
 
-        let content = match serde_json::from_str::<CommonResponse>(&raw_text) {
-            Ok(content) => content,
-            Err(_) => {
-                return RequestOutcome::Unknown;
-            }
+        let Ok(content) = serde_json::from_str::<CommonResponse>(&raw_text) else {
+            return RequestOutcome::Unknown;
         };
 
         Self::classify_response(&content, &url, order_link_id)
@@ -287,7 +284,7 @@ impl OrderGateway for OrderHandler {
             Self::report_submission_outcome(outcome, order_link_id, &to_oms);
 
             let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
+            log::info!("Execution time of `send_request`: {duration:.2?}");
         });
     }
 
@@ -324,7 +321,7 @@ impl OrderGateway for OrderHandler {
             Self::send_request(request, order_link_id).await;
 
             let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
+            log::info!("Execution time of `send_request`: {duration:.2?}");
         });
     }
 
@@ -357,7 +354,7 @@ impl OrderGateway for OrderHandler {
             Self::send_request(request, 999).await;
 
             let duration = start.elapsed();
-            log::info!("Execution time of `send_request`: {:.2?}", duration);
+            log::info!("Execution time of `send_request`: {duration:.2?}");
         });
     }
 
@@ -394,7 +391,7 @@ impl OrderGateway for OrderHandler {
             Self::send_request(request, 999).await;
 
             let duration = start.elapsed();
-            log::info!("Execution time of `cancel_all`: {:.2?}", duration);
+            log::info!("Execution time of `cancel_all`: {duration:.2?}");
         });
     }
 }
@@ -413,7 +410,7 @@ mod tests {
             ret_msg: "response message",
             result: RawValue::from_string("{}".to_string()).unwrap(),
             ret_ext_info: RawValue::from_string("{}".to_string()).unwrap(),
-            time: 1773956505537,
+            time: 1_773_956_505_537,
         }
     }
 
@@ -471,13 +468,13 @@ mod tests {
     }
 
     #[rstest]
-    #[case(10001)]
-    #[case(10002)]
-    #[case(10000)]
-    #[case(10016)]
-    #[case(170193)]
-    #[case(170194)]
-    #[case(170213)]
+    #[case(10_001)]
+    #[case(10_002)]
+    #[case(10_000)]
+    #[case(10_016)]
+    #[case(170_193)]
+    #[case(170_194)]
+    #[case(170_213)]
     fn classify_response_rejects_known_error_codes(#[case] ret_code: u32) {
         let response = create_common_response(ret_code);
 
@@ -495,7 +492,7 @@ mod tests {
         expected = "Failed https://api.example.com/v5/order/create request. Code: 99999"
     )]
     fn classify_response_panics_for_unknown_error_code() {
-        let response = create_common_response(99999);
+        let response = create_common_response(99_999);
 
         OrderHandler::classify_response(&response, "https://api.example.com/v5/order/create", 1234);
     }
@@ -510,7 +507,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(RequestOutcome::Rejected(10001))]
+    #[case(RequestOutcome::Rejected(10_001))]
     #[case(RequestOutcome::Unknown)]
     fn failed_submission_notifies_oms(#[case] outcome: RequestOutcome) {
         let (to_oms, from_gateway) = unbounded();

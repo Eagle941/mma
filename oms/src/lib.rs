@@ -166,18 +166,18 @@ impl OrderManagementSystem {
         ) {
             Outcome::NewOrder(order) => {
                 let order_link_id = self.insert_new_order(&order);
-                self.order_gateway.submit_order(&order, order_link_id)
+                self.order_gateway.submit_order(&order, order_link_id);
             }
             Outcome::AmendOrder(order) => self.order_gateway.amend_order(&order),
             Outcome::DoNothing => (),
-        };
+        }
     }
 
     /// Records order events received from the exchange.
     pub fn order_response(&mut self, event: OrderEvent) {
         match event {
             OrderEvent::OrderUpdate(order) => self.handle_order_update(order),
-            OrderEvent::ExecutionUpdate(order) => self.handle_execution_update(order),
+            OrderEvent::ExecutionUpdate(order) => self.handle_execution_update(&order),
             OrderEvent::SubmissionFailed(order_link_id) => {
                 self.handle_submission_failure(order_link_id);
             }
@@ -218,10 +218,10 @@ impl OrderManagementSystem {
 
             // TODO: Add order removal from Slab when they are closed to
             // clear up the memory.
-        };
+        }
     }
 
-    fn handle_execution_update(&mut self, order: OrderExecution) {
+    fn handle_execution_update(&mut self, order: &OrderExecution) {
         if order.exec_id.is_empty() {
             warn!(
                 "DISCARDED execution, empty ID for order {}",
@@ -479,6 +479,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "stored order fields must exactly match their source builder"
+    )]
     fn assert_order_matches_builder(order: &Order, order_link_id: u64, builder: &OrderBuilder) {
         assert_eq!(order.order_link_id, order_link_id);
         assert_eq!(order.symbol, builder.symbol);
@@ -494,6 +498,10 @@ mod tests {
         );
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "a newly submitted order must retain its exact zero fill state"
+    )]
     fn assert_submitted_order_matches_builder(
         order: &Order,
         order_link_id: u64,
@@ -506,6 +514,10 @@ mod tests {
         assert_eq!(order.updated_time, 0);
     }
 
+    #[expect(
+        clippy::float_cmp,
+        reason = "an order update must copy exchange-provided fields exactly"
+    )]
     fn assert_order_matches_update(order: &Order, builder: &OrderBuilder, update: &OrderUpdate) {
         assert_eq!(order.order_link_id, update.order_link_id);
         assert_eq!(order.symbol, builder.symbol);
@@ -520,6 +532,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "OMS initialization must preserve configured values exactly"
+    )]
     fn new_initializes_oms_from_non_default_config() {
         let (_, from_strategy) = unbounded();
         let (_, from_order_handler) = unbounded();
@@ -583,6 +599,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "a rejected risk decision must leave metrics exactly unchanged"
+    )]
     fn forward_orders_does_not_change_state_when_risk_policy_does_nothing() {
         let initial_order_link_id = 1000;
         let mut test_bench = OmsTestBench::new(initial_order_link_id);
@@ -717,7 +737,7 @@ mod tests {
             price: 0.568,
             filled_qty: 10.0,
             filled_price: 0.5675,
-            updated_time: 1773956505537,
+            updated_time: 1_773_956_505_537,
         };
         test_bench
             .oms
@@ -798,7 +818,7 @@ mod tests {
             price: 0.6,
             filled_qty: 50.0,
             filled_price: 0.6,
-            updated_time: 1773956505537,
+            updated_time: 1_773_956_505_537,
         };
 
         test_bench
@@ -1143,7 +1163,7 @@ mod tests {
             .order_response(OrderEvent::ExecutionUpdate(second_execution.clone()));
 
         let expected_inventory = 14.8;
-        let expected_avg_entry_price = 0.833333;
+        let expected_avg_entry_price = 0.833_333;
         test_bench.assert_metrics(expected_inventory, expected_avg_entry_price);
         test_bench.assert_published_inventory(expected_inventory);
         test_bench.order_gateway.assert_no_repayments();
