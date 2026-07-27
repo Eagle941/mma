@@ -12,7 +12,7 @@ normalize_comments = true
 format_strings = true
 
 # Consistency
-# newline_style = "Unix"
+newline_style = "Unix"
 normalize_doc_attributes = true
 use_field_init_shorthand = true
 imports_layout = "HorizontalVertical"
