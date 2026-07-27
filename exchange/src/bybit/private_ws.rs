@@ -62,7 +62,7 @@ impl PrivateWebSocket {
             }
             PrivateResponse::Op(res) => {
                 if !res.success {
-                    warn!("{res:?}")
+                    warn!("{res:?}");
                 }
             }
             PrivateResponse::Pong(_) => (),
@@ -79,8 +79,8 @@ impl PrivateWebSocket {
         let callback = |response: PrivateResponse| self.process_response(response);
 
         match client.run(callback) {
-            Ok(_) => {}
-            Err(e) => eprintln!("{}", e),
+            Ok(()) => {}
+            Err(e) => eprintln!("{e}"),
         }
     }
 }
@@ -209,7 +209,7 @@ mod tests {
         let response = PrivateResponse::Order(BasePrivateResponse {
             id: "message-id",
             topic: "order",
-            creation_time: 1773956505537,
+            creation_time: 1_773_956_505_537,
             data: vec![empty_order_id, order],
         });
 
@@ -228,7 +228,7 @@ mod tests {
         let response = PrivateResponse::Execution(BasePrivateResponse {
             id: "message-id",
             topic: "execution",
-            creation_time: 1773956505537,
+            creation_time: 1_773_956_505_537,
             data: vec![empty_execution, execution],
         });
 

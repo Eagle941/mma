@@ -8,6 +8,9 @@ repository.workspace = true
 readme.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 attohttpc = { version = "0.31.0", features = ["json"] } # Still used in info.rs. TODO: remove
 chrono = "0.4.43"

@@ -8,6 +8,9 @@ repository.workspace = true
 readme.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "mma"
 path = "src/main.rs"

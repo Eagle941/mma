@@ -95,16 +95,16 @@ mod tests {
     #[case(0.0, 0.0, 2.0, 10.0, 0.1, OrderSide::Buy, 2.0)] // 1. Flat to long w fee
     #[case(0.0, 0.0, 2.0, 10.0, 0.0, OrderSide::Sell, 2.0)] // 2. Flat to short
     #[case(0.0, 0.0, 2.0, 10.0, 0.1, OrderSide::Sell, 2.0)] // 2. Flat to short w fee
-    #[case(1.0, 10.0, 2.0, 5.0, 0.0, OrderSide::Buy, 1.333333)] // 3. Increase a long
-    #[case(1.0, 10.0, 2.0, 5.0, 0.1, OrderSide::Buy, 1.333333)] // 3. Increase a long w fee
+    #[case(1.0, 10.0, 2.0, 5.0, 0.0, OrderSide::Buy, 1.333_333)] // 3. Increase a long
+    #[case(1.0, 10.0, 2.0, 5.0, 0.1, OrderSide::Buy, 1.333_333)] // 3. Increase a long w fee
     #[case(1.0, 10.0, 2.0, 4.0, 0.0, OrderSide::Sell, 1.0)] // 4. Reduce a long
     #[case(1.0, 10.0, 2.0, 4.0, 0.1, OrderSide::Sell, 1.0)] // 4. Reduce a long w fee
     #[case(1.0, 10.0, 2.0, 10.0, 0.0, OrderSide::Sell, 0.0)] // 5. Close a long
     #[case(1.0, 10.0, 2.0, 10.0, 0.1, OrderSide::Sell, 0.0)] // 5. Close a long w fee
     #[case(1.0, 10.0, 2.0, 15.0, 0.0, OrderSide::Sell, 2.0)] // 6. Cross from long to short
     #[case(1.0, 10.0, 2.0, 15.0, 0.1, OrderSide::Sell, 2.0)] // 6. Cross from long to short w fee
-    #[case(2.0, -10.0, 1.0, 5.0, 0.0, OrderSide::Sell, 1.666666)] // 7. Increase a short
-    #[case(2.0, -10.0, 1.0, 5.0, 0.1, OrderSide::Sell, 1.666666)] // 7. Increase a short w fee
+    #[case(2.0, -10.0, 1.0, 5.0, 0.0, OrderSide::Sell, 1.666_666)] // 7. Increase a short
+    #[case(2.0, -10.0, 1.0, 5.0, 0.1, OrderSide::Sell, 1.666_666)] // 7. Increase a short w fee
     #[case(2.0, -10.0, 1.0, 4.0, 0.0, OrderSide::Buy, 2.0)] // 8. Reduce a short
     #[case(2.0, -10.0, 1.0, 4.0, 0.1, OrderSide::Buy, 2.0)] // 8. Reduce a short w fee
     #[case(2.0, -10.0, 1.0, 10.0, 0.0, OrderSide::Buy, 0.0)] // 9. Close a short

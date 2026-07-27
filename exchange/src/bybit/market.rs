@@ -6,6 +6,12 @@ use serde_json::Value;
 use crate::InstrumentInfo;
 use crate::bybit::utils::get_base_url;
 
+/// Fetches and parses instrument metadata from Bybit.
+///
+/// # Panics
+///
+/// Panics if the request fails, Bybit rejects it, or the response does not
+/// contain valid metadata for the configured symbol.
 pub fn get_instrument_info(config: &dyn AppConfigProvider) -> InstrumentInfo {
     let symbol = config.symbol();
     let url = format!(
@@ -16,13 +22,12 @@ pub fn get_instrument_info(config: &dyn AppConfigProvider) -> InstrumentInfo {
     let res = attohttpc::get(url).send();
     match res {
         Ok(response) => {
-            if !response.is_success() {
-                panic!(
-                    "Failed instruments-info response for {}. Status code {}",
-                    symbol,
-                    response.status()
-                );
-            }
+            assert!(
+                response.is_success(),
+                "Failed instruments-info response for {}. Status code {}",
+                symbol,
+                response.status()
+            );
 
             let content = response.text().unwrap();
             let content: Value = serde_json::from_str(&content).unwrap();
@@ -107,16 +112,16 @@ impl Trades {
         let res = attohttpc::get(url).send();
         match res {
             Ok(x) => {
-                if !x.is_success() {
+                if x.is_success() {
+                    let content = x.text().unwrap();
+                    let content: Value = serde_json::from_str(&content).unwrap();
+                    self.process_response(&content);
+                } else {
                     panic!(
                         "Failed recent-trade response for {}. Status code {}",
                         self.symbol,
                         x.status()
                     );
-                } else {
-                    let content = x.text().unwrap();
-                    let content: Value = serde_json::from_str(&content).unwrap();
-                    self.process_response(&content);
                 }
             }
             Err(x) => {
@@ -193,7 +198,7 @@ mod tests {
                 "ADA".to_string(),
                 "USDT".to_string(),
                 0.01,
-                0.000001,
+                0.000_001,
                 0.001,
                 3,
             )
@@ -262,7 +267,7 @@ mod tests {
 
         trades.process_response(&response);
 
-        assert_eq!(trades.last_price, 0.7123);
+        assert_eq!(trades.last_price.to_bits(), 0.7123_f64.to_bits());
     }
 
     #[test]

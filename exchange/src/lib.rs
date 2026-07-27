@@ -19,6 +19,13 @@ pub struct InstrumentInfo {
     decimal_places: usize,
 }
 impl InstrumentInfo {
+    /// Creates validated instrument metadata.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a coin name or symbol is empty, or if a precision or tick size
+    /// is not finite and greater than zero.
+    #[must_use]
     pub fn new(
         symbol: String,
         base_coin: String,
@@ -55,30 +62,37 @@ impl InstrumentInfo {
         }
     }
 
+    #[must_use]
     pub fn symbol(&self) -> &str {
         &self.symbol
     }
 
+    #[must_use]
     pub fn base_coin(&self) -> &str {
         &self.base_coin
     }
 
+    #[must_use]
     pub fn quote_coin(&self) -> &str {
         &self.quote_coin
     }
 
+    #[must_use]
     pub fn base_precision(&self) -> f64 {
         self.base_precision
     }
 
+    #[must_use]
     pub fn quote_precision(&self) -> f64 {
         self.quote_precision
     }
 
+    #[must_use]
     pub fn tick_size(&self) -> f64 {
         self.tick_size
     }
 
+    #[must_use]
     pub fn decimal_places(&self) -> usize {
         self.decimal_places
     }
@@ -96,7 +110,7 @@ impl Display for Level {
         write!(f, "({},{})", self.price, self.size)
     }
 }
-impl<'a> From<&OrderbookItem<'a>> for Level {
+impl From<&OrderbookItem<'_>> for Level {
     fn from(src: &OrderbookItem) -> Self {
         // TODO: optimise parsing method from `String` to `f64`
         Level {
@@ -153,6 +167,7 @@ pub enum OrderStatus {
     Deactivated,
 }
 impl OrderStatus {
+    #[must_use]
     pub fn is_open(&self) -> bool {
         matches!(
             self,
@@ -163,6 +178,7 @@ impl OrderStatus {
         )
     }
 
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         !self.is_open()
     }
@@ -172,10 +188,10 @@ impl OrderStatus {
 pub enum OrderEvent {
     OrderUpdate(OrderUpdate),
     ExecutionUpdate(OrderExecution),
-    /// order_link_id
+    /// Bybit `order_link_id`.
     SubmissionFailed(u64),
 }
-impl<'a> From<&BybitOrder<'a>> for OrderEvent {
+impl From<&BybitOrder<'_>> for OrderEvent {
     fn from(src: &BybitOrder) -> Self {
         // TODO: this `try_into` is very dangerous. It needs to be improved.
         let order = OrderUpdate {
@@ -190,7 +206,7 @@ impl<'a> From<&BybitOrder<'a>> for OrderEvent {
         OrderEvent::OrderUpdate(order)
     }
 }
-impl<'a> From<&Execution<'a>> for OrderEvent {
+impl From<&Execution<'_>> for OrderEvent {
     fn from(src: &Execution) -> Self {
         let order = OrderExecution {
             order_id: src.order_id.to_string(),
@@ -218,6 +234,12 @@ pub struct OrderBuilder {
 }
 impl OrderBuilder {
     // TODO: should it be converted into an Into trait of `OrderEvent`?
+    /// Builds a locally submitted order with the provided exchange link ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `price` is not a valid `f64`.
+    #[must_use]
     pub fn build(&self, order_link_id: u64) -> Order {
         Order {
             order_link_id,
@@ -313,15 +335,20 @@ mod tests {
 
     use super::*;
 
+    #[track_caller]
+    fn assert_f64_eq(actual: f64, expected: f64) {
+        assert_eq!(actual.to_bits(), expected.to_bits());
+    }
+
     #[test]
     #[should_panic(expected = "Tick size must be finite and greater than zero.")]
     fn instrument_info_rejects_invalid_tick_size() {
-        InstrumentInfo::new(
+        let _ = InstrumentInfo::new(
             "ADAUSDT".to_string(),
             "ADA".to_string(),
             "USDT".to_string(),
             0.01,
-            0.000001,
+            0.000_001,
             0.0,
             3,
         );
@@ -333,8 +360,8 @@ mod tests {
 
         let level = Level::from(&orderbook_item);
 
-        assert_eq!(level.price, 0.567);
-        assert_eq!(level.size, 125.5);
+        assert_f64_eq(level.price, 0.567);
+        assert_f64_eq(level.size, 125.5);
     }
 
     #[rstest]
@@ -389,16 +416,16 @@ mod tests {
         };
         assert_eq!(order.order_link_id, 1234);
         assert_eq!(order.order_status, OrderStatus::New);
-        assert_eq!(order.qty, 25.0);
-        assert_eq!(order.price, 0.567);
-        assert_eq!(order.filled_qty, 10.0);
+        assert_f64_eq(order.qty, 25.0);
+        assert_f64_eq(order.price, 0.567);
+        assert_f64_eq(order.filled_qty, 10.0);
         if expected_filled_price.is_nan() {
             // NOTE: NaN values can't be compared, hence the if-statement
             assert!(order.filled_price.is_nan());
         } else {
-            assert_eq!(order.filled_price, expected_filled_price);
+            assert_f64_eq(order.filled_price, expected_filled_price);
         }
-        assert_eq!(order.updated_time, 1773956505537);
+        assert_eq!(order.updated_time, 1_773_956_505_537);
     }
 
     #[rstest]
@@ -444,14 +471,14 @@ mod tests {
         };
         assert_eq!(order.order_link_id, 1234);
         assert_eq!(order.order_id, "exchange-order-id");
-        assert_eq!(order.order_price, 0.567);
+        assert_f64_eq(order.order_price, 0.567);
         assert_eq!(order.order_side, OrderSide::Sell);
         assert_eq!(order.exec_id, "execution-id");
-        assert_eq!(order.exec_ts, 1773956505537);
-        assert_eq!(order.exec_price, 0.566);
-        assert_eq!(order.exec_fee, expected_exec_fee);
-        assert_eq!(order.exec_qty, 10.0);
-        assert_eq!(order.remaining_qty, 15.0);
+        assert_eq!(order.exec_ts, 1_773_956_505_537);
+        assert_f64_eq(order.exec_price, 0.566);
+        assert_f64_eq(order.exec_fee, expected_exec_fee);
+        assert_f64_eq(order.exec_qty, 10.0);
+        assert_f64_eq(order.remaining_qty, 15.0);
     }
 
     #[test]
@@ -471,9 +498,9 @@ mod tests {
         assert_eq!(order.symbol, order_builder.symbol);
         assert_eq!(order.side, order_builder.side);
         assert_eq!(order.order_type, order_builder.order_type);
-        assert_eq!(order.qty, order_builder.qty);
-        assert_eq!(order.price, 0.567);
-        assert_eq!(order.filled_qty, 0.0);
+        assert_f64_eq(order.qty, order_builder.qty);
+        assert_f64_eq(order.price, 0.567);
+        assert_f64_eq(order.filled_qty, 0.0);
         assert!(order.filled_price.is_nan());
         assert_eq!(order.updated_time, 0);
     }

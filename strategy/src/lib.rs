@@ -37,6 +37,11 @@ impl StrategyRunner {
         }
     }
 
+    /// Runs the strategy continuously at the configured interval.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the order receiver disconnects while the strategy is running.
     pub fn cycle(&mut self) {
         let mut inventory = self.inventory.pop().unwrap_or(0.0);
         loop {

@@ -35,6 +35,10 @@ impl RiskManager {
     }
 }
 impl RiskPolicy for RiskManager {
+    #[expect(
+        clippy::float_cmp,
+        reason = "exchange-normalized prices and quantities require exact amendment decisions"
+    )]
     fn evaluate_order(
         &self,
         orders: &Slab<Order>,

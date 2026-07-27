@@ -51,6 +51,13 @@ pub struct AppConfig {
     log_style: WriteStyle,
 }
 impl AppConfig {
+    /// Loads and validates application configuration from environment files and
+    /// variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `.env` or `.secrets` cannot be loaded, a required
+    /// variable is missing or blank, or a configuration value is invalid.
     pub fn load() -> Result<Self> {
         dotenvy::dotenv().context(".env file must be present with configuration parameters")?;
         dotenvy::from_filename(".secrets")
@@ -79,6 +86,11 @@ impl AppConfig {
         )
     }
 
+    /// Creates application configuration from explicit values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `order_size` is not finite and greater than zero.
     pub fn new(
         symbol: impl Into<String>,
         coin: impl Into<String>,
@@ -194,7 +206,9 @@ mod tests {
     #[case("25", 25.0)]
     #[case("0.5", 0.5)]
     fn parse_order_size_accepts_positive_finite_values(#[case] value: &str, #[case] expected: f64) {
-        assert_eq!(parse_order_size(value).unwrap(), expected);
+        let actual = parse_order_size(value).unwrap();
+
+        assert_eq!(actual.to_bits(), expected.to_bits());
     }
 
     #[rstest]

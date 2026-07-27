@@ -36,7 +36,12 @@ impl PublicWebSocket {
     }
 
     // TODO: Optimise order book updates
-    fn process_delta(&mut self, data: Orderbook) {
+    #[expect(
+        clippy::float_cmp,
+        reason = "Bybit deltas use exact parsed prices as level IDs and exact zero sizes as \
+                  deletion markers"
+    )]
+    fn process_delta(&mut self, data: &Orderbook) {
         // process asks
         for ask in &data.a {
             let ask: Level = ask.into();
@@ -78,7 +83,7 @@ impl PublicWebSocket {
 
     fn process_orderbook_response(
         &mut self,
-        response: BasePublicResponse<'_, Orderbook<'_>>,
+        response: &BasePublicResponse<'_, Orderbook<'_>>,
         order_book_publisher: &mut Input<OrderBook>,
     ) {
         // TODO: should it be response.cts? It's not available at the moment.
@@ -87,13 +92,13 @@ impl PublicWebSocket {
         // If you receive a new snapshot message, you will have to reset your local
         // orderbook.
         if response.type_ == "snapshot" || response.data.u == 1 {
-            self.order_book.asks = response.data.a.iter().map(|item| item.into()).collect();
-            self.order_book.bids = response.data.b.iter().map(|item| item.into()).collect();
+            self.order_book.asks = response.data.a.iter().map(Into::into).collect();
+            self.order_book.bids = response.data.b.iter().map(Into::into).collect();
         } else {
             // Receive a delta message, update the orderbook.
             // Note that asks and bids of a delta message **do not guarantee** to be
             // ordered.
-            self.process_delta(response.data);
+            self.process_delta(&response.data);
         }
 
         // TODO: remove the cloning forced by the triple buffer consistency
@@ -109,19 +114,19 @@ impl PublicWebSocket {
 
         let callback = |res: SpotPublicResponse| match res {
             SpotPublicResponse::Orderbook(response) => {
-                self.process_orderbook_response(response, order_book_publisher);
+                self.process_orderbook_response(&response, order_book_publisher);
             }
             SpotPublicResponse::Op(res) => {
                 if !res.success {
-                    warn!("{res:?}")
+                    warn!("{res:?}");
                 }
             }
             x => warn!("SpotPublicResponse::{x:?} not implemented"),
         };
 
         match client.run(callback) {
-            Ok(_) => {}
-            Err(e) => eprintln!("{}", e),
+            Ok(()) => {}
+            Err(e) => eprintln!("{e}"),
         }
     }
 }
@@ -137,11 +142,11 @@ mod tests {
 
     struct TestConfig;
     impl AppConfigProvider for TestConfig {
-        fn symbol(&self) -> &str {
+        fn symbol(&self) -> &'static str {
             "ADAUSDT"
         }
 
-        fn coin(&self) -> &str {
+        fn coin(&self) -> &'static str {
             "ADA"
         }
 
@@ -153,15 +158,15 @@ mod tests {
             false
         }
 
-        fn api_key(&self) -> &str {
+        fn api_key(&self) -> &'static str {
             "api-key"
         }
 
-        fn api_secret(&self) -> &str {
+        fn api_secret(&self) -> &'static str {
             "api-secret"
         }
 
-        fn log_filter(&self) -> &str {
+        fn log_filter(&self) -> &'static str {
             "warn"
         }
 
@@ -219,7 +224,7 @@ mod tests {
                 seq: Some(2),
             },
         };
-        public_websocket.process_orderbook_response(response, &mut order_book_publisher);
+        public_websocket.process_orderbook_response(&response, &mut order_book_publisher);
 
         let expected_order_book = create_order_book(
             &[(101.0, 2.0), (102.0, 3.0)],
@@ -257,7 +262,7 @@ mod tests {
                 seq: Some(2),
             },
         };
-        public_websocket.process_orderbook_response(response, &mut order_book_publisher);
+        public_websocket.process_orderbook_response(&response, &mut order_book_publisher);
 
         let expected_order_book =
             create_order_book(&[(101.0, 2.0), (102.0, 3.0)], &[(98.0, 4.0)], 2000, 2000);
@@ -285,7 +290,7 @@ mod tests {
             seq: Some(2),
         };
 
-        public_websocket.process_delta(delta);
+        public_websocket.process_delta(&delta);
 
         assert_eq!(
             public_websocket.order_book,
@@ -311,7 +316,7 @@ mod tests {
             seq: Some(2),
         };
 
-        public_websocket.process_delta(delta);
+        public_websocket.process_delta(&delta);
 
         assert_eq!(
             public_websocket.order_book,
@@ -342,7 +347,7 @@ mod tests {
             seq: Some(2),
         };
 
-        public_websocket.process_delta(delta);
+        public_websocket.process_delta(&delta);
 
         assert_eq!(
             public_websocket.order_book,
@@ -376,7 +381,7 @@ mod tests {
             seq: Some(2),
         };
 
-        public_websocket.process_delta(delta);
+        public_websocket.process_delta(&delta);
 
         assert_eq!(
             public_websocket.order_book,
@@ -403,7 +408,7 @@ mod tests {
             seq: Some(2),
         };
 
-        public_websocket.process_delta(delta);
+        public_websocket.process_delta(&delta);
 
         assert_eq!(public_websocket.order_book, initial_order_book);
     }

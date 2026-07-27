@@ -1,7 +1,9 @@
 # If this version is changed, amend the edition set in `Cargo.toml`.
 edition = "2024"
-
+style_edition = "2024"
 unstable_features = true
+# Prevent accidental formatting with an incompatible rustfmt release.
+required_version = "1.9.0"
 
 # Better readability
 format_code_in_doc_comments = true
@@ -10,6 +12,7 @@ normalize_comments = true
 format_strings = true
 
 # Consistency
+newline_style = "Unix"
 normalize_doc_attributes = true
 use_field_init_shorthand = true
 imports_layout = "HorizontalVertical"

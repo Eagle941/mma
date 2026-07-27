@@ -19,7 +19,6 @@ pub struct Wallet {
 }
 impl Wallet {
     // NOTE: The default implementation doesn't have any sense for this struct.
-    #[allow(clippy::new_without_default)]
     pub fn new(config: &dyn AppConfigProvider) -> Self {
         let base_url = get_base_url(config.testnet());
         let api_key = config.api_key().to_string();
@@ -65,12 +64,12 @@ impl Wallet {
             .send();
         match res {
             Ok(x) => {
-                if !x.is_success() {
-                    panic!("Failed wallet-balance response. Status code {}", x.status());
-                } else {
+                if x.is_success() {
                     let content = x.text().unwrap();
                     let content: Value = serde_json::from_str(&content).unwrap();
                     self.process_response(&content);
+                } else {
+                    panic!("Failed wallet-balance response. Status code {}", x.status());
                 }
             }
             Err(x) => {
